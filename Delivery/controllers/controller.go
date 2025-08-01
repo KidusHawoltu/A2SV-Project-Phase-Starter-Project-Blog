@@ -12,21 +12,103 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-//==============================================================================
-// DTOs (Data Transfer Objects)
-//==============================================================================
+// ===========================================
+// USER CONTROLLER
+// ===========================================
 
-// CreateBlogRequest defines the structure for a new blog post request.
+type UserController struct {
+	userUsecase usecases.UserUsecase
+}
+
+func NewUserController(uc usecases.UserUsecase) *UserController {
+	return &UserController{
+		userUsecase: uc,
+	}
+}
+
+type RegisterRequest struct {
+	Username string `json:"username" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+func (ctrl *UserController) Register(c *gin.Context) {
+	var req RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	user := &domain.User{
+		Username: req.Username,
+		Email:    req.Email,
+		Password: req.Password,
+		Role:     domain.RoleUser, // Default role
+	}
+
+	err := ctrl.userUsecase.Register(c.Request.Context(), user)
+	if err != nil {
+		// Map domain errors to HTTP status codes
+		switch err {
+		case domain.ErrEmailExists:
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		case domain.ErrPasswordTooShort, domain.ErrInvalidEmailFormat:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred"})
+		}
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
+}
+
+type LoginRequest struct {
+	Email    string `json:"email" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+func (ctrl *UserController) Login(c *gin.Context) {
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	token, err := ctrl.userUsecase.Login(c.Request.Context(), req.Email, req.Password)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": domain.ErrAuthenticationFailed.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"access_token": token})
+}
+
+// GetProfile demonstrates a protected route
+func (ctrl *UserController) GetProfile(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in token"})
+		return
+	}
+
+	// This is a placeholder for a real GetProfile usecase.
+	// In a full app, you'd call uc.GetProfile(userID.(string))
+	c.JSON(http.StatusOK, gin.H{"message": "This is your protected profile", "userID": userID})
+}
+
+// ===========================================
+// BLOG CONTROLLER
+// ===========================================
+
 type CreateBlogRequest struct {
 	Title   string   `json:"title" binding:"required"`
 	Content string   `json:"content" binding:"required"`
 	Tags    []string `json:"tags"`
 }
 
-// UpdateBlogRequest defines the structure for updating a blog post.
 type UpdateBlogRequest map[string]interface{}
 
-// BlogResponse is the standard format for a single blog post returned to the client.
 type BlogResponse struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
@@ -39,36 +121,26 @@ type BlogResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Pagination represents the metadata for a paginated response.
 type Pagination struct {
 	Total int64 `json:"total"`
 	Page  int64 `json:"page"`
 	Limit int64 `json:"limit"`
 }
 
-// PaginatedBlogResponse is the format for a list of blogs.
 type PaginatedBlogResponse struct {
 	Data       []BlogResponse `json:"data"`
 	Pagination Pagination     `json:"pagination"`
 }
 
-//==============================================================================
-// Controller
-//==============================================================================
-
-// BlogController holds the usecase dependency.
 type BlogController struct {
 	blogUsecase domain.IBlogUsecase
 }
 
-// NewBlogController is the constructor for BlogController.
 func NewBlogController(usecase domain.IBlogUsecase) *BlogController {
 	return &BlogController{
 		blogUsecase: usecase,
 	}
 }
-
-// --- Handler Methods ---
 
 func (bc *BlogController) Create(c *gin.Context) {
 	var req CreateBlogRequest
@@ -156,14 +228,11 @@ func (bc *BlogController) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-//==============================================================================
-// Helpers
-//==============================================================================
+// ===========================================
+// HELPERS
+// ===========================================
 
-// HandleError centralizes error handling for the controller.
-// It maps domain and usecase errors to appropriate HTTP status codes.
 func HandleError(c *gin.Context, err error) {
-	// Map specific, known errors to HTTP status codes.
 	switch {
 	case errors.Is(err, domain.ErrValidation):
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
@@ -174,14 +243,11 @@ func HandleError(c *gin.Context, err error) {
 	case errors.Is(err, usecases.ErrConflict):
 		c.JSON(http.StatusConflict, gin.H{"message": err.Error()})
 	default:
-		// Any other error is treated as an internal server error.
-		// It's crucial to log these for debugging.
 		log.Printf("Internal Server Error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"message": "An unexpected error occurred"})
 	}
 }
 
-// toBlogResponse maps a domain.Blog entity to its API response representation.
 func toBlogResponse(b *domain.Blog) BlogResponse {
 	return BlogResponse{
 		ID:        b.ID,
@@ -196,7 +262,6 @@ func toBlogResponse(b *domain.Blog) BlogResponse {
 	}
 }
 
-// toPaginatedBlogResponse maps a slice of blogs and pagination data to the API response format.
 func toPaginatedBlogResponse(blogs []*domain.Blog, total, page, limit int64) PaginatedBlogResponse {
 	blogResponses := make([]BlogResponse, len(blogs))
 	for i, b := range blogs {

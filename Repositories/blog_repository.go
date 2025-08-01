@@ -41,7 +41,7 @@ func NewBlogRepository(col *mongo.Collection) domain.IBlogRepository {
 // --- Interface Implementations ---
 
 func (r *blogRepository) Create(ctx context.Context, blog *domain.Blog) error {
-	model, err := fromDomain(blog) // Convert domain entity to persistence model
+	model, err := fromBlogDomain(blog) // Convert domain entity to persistence model
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (r *blogRepository) GetByID(ctx context.Context, id string) (*domain.Blog, 
 		return nil, err
 	}
 
-	return toDomain(&model), nil
+	return toBlogDomain(&model), nil
 }
 
 func (r *blogRepository) Fetch(ctx context.Context, page, limit int64) ([]*domain.Blog, int64, error) {
@@ -108,7 +108,7 @@ func (r *blogRepository) Fetch(ctx context.Context, page, limit int64) ([]*domai
 		if err := cursor.Decode(&model); err != nil {
 			return nil, 0, err // Stop and return on a decoding error
 		}
-		blogs = append(blogs, toDomain(&model))
+		blogs = append(blogs, toBlogDomain(&model))
 	}
 
 	if err := cursor.Err(); err != nil {
@@ -119,7 +119,7 @@ func (r *blogRepository) Fetch(ctx context.Context, page, limit int64) ([]*domai
 }
 
 func (r *blogRepository) Update(ctx context.Context, blog *domain.Blog) error {
-	model, err := fromDomain(blog)
+	model, err := fromBlogDomain(blog)
 	if err != nil {
 		return err
 	}
@@ -165,8 +165,8 @@ func (r *blogRepository) Delete(ctx context.Context, id string) error {
 
 // --- Mapper Functions ---
 
-// toDomain converts a persistence model (BlogModel) to a domain entity (Blog).
-func toDomain(model *BlogModel) *domain.Blog {
+// toBlogDomain converts a persistence model (BlogModel) to a domain entity (Blog).
+func toBlogDomain(model *BlogModel) *domain.Blog {
 	return &domain.Blog{
 		ID:        model.ID.Hex(),
 		Title:     model.Title,
@@ -181,9 +181,9 @@ func toDomain(model *BlogModel) *domain.Blog {
 	}
 }
 
-// fromDomain converts a domain entity (Blog) to a persistence model (BlogModel).
+// fromBlogDomain converts a domain entity (Blog) to a persistence model (BlogModel).
 // Note: This does not set the _id field, as that is handled during creation or update.
-func fromDomain(blog *domain.Blog) (*BlogModel, error) {
+func fromBlogDomain(blog *domain.Blog) (*BlogModel, error) {
 	authorID, err := primitive.ObjectIDFromHex(blog.AuthorID)
 	if err != nil {
 		return nil, usecases.ErrInternal // An invalid AuthorID string is an internal error

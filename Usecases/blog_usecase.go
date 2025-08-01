@@ -140,7 +140,7 @@ func (bu *blogUsecase) Delete(ctx context.Context, blogID, userID, userRole stri
 
 	// 2. Authorization Logic: An Admin can delete any post, a User can only delete their own.
 	isOwner := blogToDelete.AuthorID == userID
-	isAdmin := userRole == domain.RoleAdmin
+	isAdmin := userRole == string(domain.RoleAdmin)
 
 	if !isAdmin && !isOwner {
 		return domain.ErrPermissionDenied

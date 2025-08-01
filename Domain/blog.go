@@ -7,12 +7,7 @@ import (
 )
 
 var (
-	ErrValidation       = errors.New("validation error")
-	ErrPermissionDenied = errors.New("permission denied")
-
-	// temp role
-	RoleAdmin = "Admin"
-	RoleUser = "User"
+	ErrValidation = errors.New("validation error")
 )
 
 type Blog struct {

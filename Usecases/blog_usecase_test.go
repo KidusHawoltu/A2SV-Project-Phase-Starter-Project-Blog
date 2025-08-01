@@ -167,7 +167,7 @@ func (s *BlogUsecaseTestSuite) TestDelete() {
 		s.mockRepo.On("Delete", mock.Anything, mockBlog.ID).Return(nil).Once()
 
 		// Act
-		err := s.usecase.Delete(context.Background(), mockBlog.ID, "owner-id", domain.RoleUser)
+		err := s.usecase.Delete(context.Background(), mockBlog.ID, "owner-id", string(domain.RoleUser))
 
 		// Assert
 		s.NoError(err)
@@ -181,7 +181,7 @@ func (s *BlogUsecaseTestSuite) TestDelete() {
 
 		// Act
 		// The admin's ID is different from the owner's, but their role grants permission.
-		err := s.usecase.Delete(context.Background(), mockBlog.ID, "admin-id", domain.RoleAdmin)
+		err := s.usecase.Delete(context.Background(), mockBlog.ID, "admin-id", string(domain.RoleAdmin))
 
 		// Assert
 		s.NoError(err)
@@ -194,7 +194,7 @@ func (s *BlogUsecaseTestSuite) TestDelete() {
 		// We DO NOT mock the "Delete" call because it should never be reached.
 
 		// Act
-		err := s.usecase.Delete(context.Background(), mockBlog.ID, "not-the-owner-id", domain.RoleUser)
+		err := s.usecase.Delete(context.Background(), mockBlog.ID, "not-the-owner-id", string(domain.RoleUser))
 
 		// Assert
 		s.Error(err)
@@ -207,7 +207,7 @@ func (s *BlogUsecaseTestSuite) TestDelete() {
 		s.mockRepo.On("GetByID", mock.Anything, "not-found-id").Return(nil, usecases.ErrNotFound).Once()
 
 		// Act
-		err := s.usecase.Delete(context.Background(), "not-found-id", "any-user", domain.RoleUser)
+		err := s.usecase.Delete(context.Background(), "not-found-id", "any-user", string(domain.RoleUser))
 
 		// Assert
 		s.Error(err)
@@ -227,7 +227,7 @@ func (s *BlogUsecaseTestSuite) TestUpdate() {
 		s.mockRepo.On("Update", mock.Anything, mock.AnythingOfType("*domain.Blog")).Return(nil).Once()
 
 		// Act
-		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "owner-id", domain.RoleUser, updates)
+		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "owner-id", string(domain.RoleUser), updates)
 
 		// Assert
 		s.NoError(err)
@@ -242,7 +242,7 @@ func (s *BlogUsecaseTestSuite) TestUpdate() {
 		// No mock for "Update" as it shouldn't be called.
 
 		// Act
-		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "not-owner-id", domain.RoleUser, updates)
+		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "not-owner-id", string(domain.RoleUser), updates)
 
 		// Assert
 		s.Error(err)
@@ -257,7 +257,7 @@ func (s *BlogUsecaseTestSuite) TestUpdate() {
 		s.mockRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
 
 		// Act
-		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "owner-id", domain.RoleUser, invalidUpdates)
+		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "owner-id", string(domain.RoleUser), invalidUpdates)
 
 		// Assert
 		s.Error(err)
