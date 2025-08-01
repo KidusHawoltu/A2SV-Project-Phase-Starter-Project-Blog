@@ -9,49 +9,47 @@ import (
 
 	"github.com/stretchr/testify/suite"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// UserRepositorySuite defines the test suite
+// UserRepositorySuite defines the test suite.
 type UserRepositorySuite struct {
 	suite.Suite
-	client     *mongo.Client
-	db         *mongo.Database
 	repository usecases.UserRepository
 	collection *mongo.Collection
 }
 
-// SetupSuite runs once before all tests in the suite
-func (s *UserRepositorySuite) SetupSuite() {
-	// Connect to a test database
-	clientOpts := options.Client().ApplyURI("mongodb://localhost:27017")
-	client, err := mongo.Connect(context.Background(), clientOpts)
-	s.Require().NoError(err)
-	s.client = client
-	s.db = client.Database("g6_blog_test_db")
-	s.collection = s.db.Collection("users")
-	s.repository = repositories.NewMongoUserRepository(s.db, "users")
-}
-
-// TearDownSuite runs once after all tests in the suite
-func (s *UserRepositorySuite) TearDownSuite() {
-	s.db.Drop(context.Background())
-	s.client.Disconnect(context.Background())
-}
-
-// SetupTest runs before each test
+// SetupTest runs before each test. It's now responsible for initializing
+// the repository with the shared testDB and ensuring the collection is clean.
 func (s *UserRepositorySuite) SetupTest() {
-	// Clean up the collection before each test to ensure isolation
-	s.collection.DeleteMany(context.Background(), bson.M{})
+	// The collection name for this specific suite's tests.
+	collectionName := "users"
+
+	// Initialize the repository instance using the global testDB from main_repository_test.go
+	s.repository = repositories.NewMongoUserRepository(testDB, collectionName)
+
+	// Keep a direct handle to the collection for easy verification and cleanup.
+	s.collection = testDB.Collection(collectionName)
 }
 
-// TestUserRepositorySuite is the entry point for the test suite
+// TearDownTest runs after each test to ensure a clean state for the next test.
+// Dropping the collection is a robust way to guarantee isolation.
+func (s *UserRepositorySuite) TearDownTest() {
+	err := s.collection.Drop(context.Background())
+	s.Require().NoError(err, "Failed to drop test collection")
+}
+
+// TestUserRepositorySuite is the entry point for the test suite.
 func TestUserRepositorySuite(t *testing.T) {
+	// Skip integration tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode.")
+	}
 	suite.Run(t, new(UserRepositorySuite))
 }
 
-// --- The Actual Tests ---
+// --- The Actual Tests (largely unchanged) ---
 
 func (s *UserRepositorySuite) TestCreate() {
 	user := &domain.User{
@@ -79,7 +77,8 @@ func (s *UserRepositorySuite) TestGetByEmail() {
 		Password: "hashedpassword",
 		Role:     domain.RoleUser,
 	}
-	s.repository.Create(context.Background(), user)
+	err := s.repository.Create(context.Background(), user)
+	s.Require().NoError(err)
 
 	s.Run("Success - User Found", func() {
 		// Act
@@ -96,7 +95,7 @@ func (s *UserRepositorySuite) TestGetByEmail() {
 		foundUser, err := s.repository.GetByEmail(context.Background(), "notfound@test.com")
 
 		// Assert
-		s.Require().NoError(err) // GetByEmail should return nil, nil for not found
+		s.Require().NoError(err) // GetByEmail should return (nil, nil) for not found
 		s.Nil(foundUser)
 	})
 }
@@ -106,7 +105,8 @@ func (s *UserRepositorySuite) TestGetByID() {
 	user := &domain.User{Email: "getbyid@test.com", Username: "getbyid"}
 	err := s.repository.Create(context.Background(), user)
 	s.Require().NoError(err)
-	// Retrieve the created user to get its real ID
+
+	// Retrieve the created user to get its real ID for the success case
 	createdUser, err := s.repository.GetByEmail(context.Background(), user.Email)
 	s.Require().NoError(err)
 
@@ -121,8 +121,11 @@ func (s *UserRepositorySuite) TestGetByID() {
 	})
 
 	s.Run("Failure - User Not Found", func() {
+		// Arrange: Generate a new, valid ObjectID that doesn't exist in the DB
+		nonExistentID := primitive.NewObjectID().Hex()
+
 		// Act
-		foundUser, err := s.repository.GetByID(context.Background(), "507f1f77bcf86cd799439011") // A valid but non-existent ObjectID
+		foundUser, err := s.repository.GetByID(context.Background(), nonExistentID)
 
 		// Assert
 		s.Require().Error(err)

@@ -47,7 +47,7 @@ func (m *MockBlogUsecase) GetByID(ctx context.Context, id string) (*domain.Blog,
 	}
 	return blog, args.Error(1)
 }
-func (m *MockBlogUsecase) Update(ctx context.Context, blogID, userID, userRole string, updates map[string]interface{}) (*domain.Blog, error) {
+func (m *MockBlogUsecase) Update(ctx context.Context, blogID, userID string, userRole domain.Role, updates map[string]interface{}) (*domain.Blog, error) {
 	args := m.Called(ctx, blogID, userID, userRole, updates)
 	var blog *domain.Blog
 	if args.Get(0) != nil {
@@ -55,7 +55,7 @@ func (m *MockBlogUsecase) Update(ctx context.Context, blogID, userID, userRole s
 	}
 	return blog, args.Error(1)
 }
-func (m *MockBlogUsecase) Delete(ctx context.Context, blogID, userID, userRole string) error {
+func (m *MockBlogUsecase) Delete(ctx context.Context, blogID, userID string, userRole domain.Role) error {
 	args := m.Called(ctx, blogID, userID, userRole)
 	return args.Error(0)
 }
@@ -179,7 +179,7 @@ func (s *BlogControllerTestSuite) TestGetByID() {
 }
 
 func (s *BlogControllerTestSuite) TestDelete() {
-	authMiddleware := func(c *gin.Context) { c.Set("userID", "user-123"); c.Set("role", domain.RoleUser); c.Next() }
+	authMiddleware := func(c *gin.Context) { c.Set("userID", "user-123"); c.Set("role", string(domain.RoleUser)); c.Next() }
 
 	s.Run("Success", func() {
 		// Arrange
@@ -188,7 +188,7 @@ func (s *BlogControllerTestSuite) TestDelete() {
 		router := gin.New()
 		router.DELETE("/blogs/:id", authMiddleware, controller.Delete)
 
-		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", "").Return(nil).Once()
+		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", domain.RoleUser).Return(nil).Once()
 
 		req := httptest.NewRequest(http.MethodDelete, "/blogs/blog-to-delete", nil)
 		w := httptest.NewRecorder()
@@ -208,7 +208,7 @@ func (s *BlogControllerTestSuite) TestDelete() {
 		router := gin.New()
 		router.DELETE("/blogs/:id", authMiddleware, controller.Delete)
 
-		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", "").Return(domain.ErrPermissionDenied).Once()
+		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", domain.RoleUser).Return(domain.ErrPermissionDenied).Once()
 
 		req := httptest.NewRequest(http.MethodDelete, "/blogs/blog-to-delete", nil)
 		w := httptest.NewRecorder()
@@ -219,5 +219,130 @@ func (s *BlogControllerTestSuite) TestDelete() {
 		// Assert
 		s.Equal(http.StatusForbidden, w.Code)
 		mockUsecase.AssertExpectations(s.T())
+	})
+}
+
+func (s *BlogControllerTestSuite) TestUpdate() {
+	// Middleware to simulate an authenticated user making the request
+	authMiddleware := func(c *gin.Context) {
+		c.Set("userID", "user-123")
+		c.Set("role", string(domain.RoleUser))
+		c.Next()
+	}
+
+	s.Run("Success", func() {
+		// Arrange
+		mockUsecase := new(MockBlogUsecase)
+		controller := controllers.NewBlogController(mockUsecase)
+		router := gin.New()
+		router.PUT("/blogs/:id", authMiddleware, controller.Update)
+
+		// The data we expect to send in the request body
+		updatePayload := map[string]interface{}{"title": "Updated Title"}
+
+		// The blog object we expect the usecase to return
+		mockUpdatedBlog, _ := domain.NewBlog("Updated Title", "Original Content", "user-123", nil)
+		mockUpdatedBlog.ID = "blog-to-update"
+
+		// Set the mock expectation
+		mockUsecase.On("Update", mock.Anything, "blog-to-update", "user-123", domain.RoleUser, updatePayload).Return(mockUpdatedBlog, nil).Once()
+
+		// Create the HTTP request
+		body, _ := json.Marshal(updatePayload)
+		req := httptest.NewRequest(http.MethodPut, "/blogs/blog-to-update", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Act
+		router.ServeHTTP(w, req)
+
+		// Assert
+		s.Equal(http.StatusOK, w.Code, "Expected status OK")
+		var resp controllers.BlogResponse
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		s.Equal("Updated Title", resp.Title, "Response title should be updated")
+		mockUsecase.AssertExpectations(s.T())
+	})
+
+	s.Run("Failure_UsecaseError", func() {
+		// Arrange
+		mockUsecase := new(MockBlogUsecase)
+		controller := controllers.NewBlogController(mockUsecase)
+		router := gin.New()
+		router.PUT("/blogs/:id", authMiddleware, controller.Update)
+
+		updatePayload := map[string]interface{}{"title": "Updated Title"}
+		mockUsecase.On("Update", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, domain.ErrPermissionDenied).Once()
+
+		body, _ := json.Marshal(updatePayload)
+		req := httptest.NewRequest(http.MethodPut, "/blogs/some-id", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Act
+		router.ServeHTTP(w, req)
+
+		// Assert
+		s.Equal(http.StatusForbidden, w.Code, "Expected status Forbidden for permission denied")
+		mockUsecase.AssertExpectations(s.T())
+	})
+}
+
+// Add this test function as well
+func (s *BlogControllerTestSuite) TestFetch() {
+	s.Run("Success", func() {
+		// Arrange
+		mockUsecase := new(MockBlogUsecase)
+		controller := controllers.NewBlogController(mockUsecase)
+		router := gin.New()
+		router.GET("/blogs", controller.Fetch)
+
+		// The mock data the usecase will return
+		mockBlogs := []*domain.Blog{
+			{ID: "1", Title: "Blog 1"},
+			{ID: "2", Title: "Blog 2"},
+		}
+		totalCount := int64(10)
+
+		// Set the mock expectation
+		mockUsecase.On("Fetch", mock.Anything, int64(1), int64(5)).Return(mockBlogs, totalCount, nil).Once()
+
+		// Create the HTTP request
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&limit=5", nil)
+		w := httptest.NewRecorder()
+
+		// Act
+		router.ServeHTTP(w, req)
+
+		// Assert
+		s.Equal(http.StatusOK, w.Code)
+
+		var resp controllers.PaginatedBlogResponse
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		s.NoError(err, "Should successfully unmarshal the response")
+		s.Len(resp.Data, 2, "Response should contain 2 blogs")
+		s.Equal(totalCount, resp.Pagination.Total, "Pagination total should match")
+		s.Equal(int64(1), resp.Pagination.Page, "Pagination page should match")
+		mockUsecase.AssertExpectations(s.T())
+	})
+
+	s.Run("Failure_InvalidQueryParam", func() {
+		// Arrange
+		mockUsecase := new(MockBlogUsecase)
+		controller := controllers.NewBlogController(mockUsecase)
+		router := gin.New()
+		router.GET("/blogs", controller.Fetch)
+
+		// Create a request with a non-integer page number
+		req := httptest.NewRequest(http.MethodGet, "/blogs?page=abc", nil)
+		w := httptest.NewRecorder()
+
+		// Act
+		router.ServeHTTP(w, req)
+
+		// Assert
+		s.Equal(http.StatusBadRequest, w.Code)
+		// Usecase should not have been called if query parsing fails
+		mockUsecase.AssertNotCalled(s.T(), "Fetch", mock.Anything, mock.Anything, mock.Anything)
 	})
 }

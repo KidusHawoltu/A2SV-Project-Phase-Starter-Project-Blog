@@ -18,14 +18,16 @@ var (
 // It orchestrates the business logic, using the repository for persistence.
 type blogUsecase struct {
 	blogRepo       domain.IBlogRepository
+	userRepo       UserRepository
 	contextTimeout time.Duration
 }
 
 // NewBlogUsecase is the constructor for a blogUsecase.
 // It uses dependency injection to receive its dependencies.
-func NewBlogUsecase(repo domain.IBlogRepository, timeout time.Duration) domain.IBlogUsecase {
+func NewBlogUsecase(blogRepository domain.IBlogRepository, userRepository UserRepository, timeout time.Duration) domain.IBlogUsecase {
 	return &blogUsecase{
-		blogRepo:       repo,
+		blogRepo:       blogRepository,
+		userRepo:       userRepository,
 		contextTimeout: timeout,
 	}
 }
@@ -42,6 +44,13 @@ func (bu *blogUsecase) Create(ctx context.Context, title, content, authorID stri
 
 	// 2. The usecase could perform additional, application-specific validation here.
 	// (e.g., check if authorID exists in a user repository).
+	author, err := bu.userRepo.GetByID(ctx, authorID)
+	if err != nil {
+		return nil, err
+	}
+	if author == nil {
+		return nil, domain.ErrUserNotFound
+	}
 
 	// 3. Set up a context with a timeout for the repository call.
 	ctx, cancel := context.WithTimeout(ctx, bu.contextTimeout)
@@ -84,7 +93,7 @@ func (bu *blogUsecase) GetByID(ctx context.Context, id string) (*domain.Blog, er
 }
 
 // Update handles the logic for updating a post, including authorization.
-func (bu *blogUsecase) Update(ctx context.Context, blogID, userID, userRole string, updates map[string]interface{}) (*domain.Blog, error) {
+func (bu *blogUsecase) Update(ctx context.Context, blogID, userID string, userRole domain.Role, updates map[string]interface{}) (*domain.Blog, error) {
 	ctx, cancel := context.WithTimeout(ctx, bu.contextTimeout)
 	defer cancel()
 
@@ -128,7 +137,7 @@ func (bu *blogUsecase) Update(ctx context.Context, blogID, userID, userRole stri
 }
 
 // Delete handles the logic for deleting a post, including complex authorization.
-func (bu *blogUsecase) Delete(ctx context.Context, blogID, userID, userRole string) error {
+func (bu *blogUsecase) Delete(ctx context.Context, blogID, userID string, userRole domain.Role) error {
 	ctx, cancel := context.WithTimeout(ctx, bu.contextTimeout)
 	defer cancel()
 
@@ -140,7 +149,7 @@ func (bu *blogUsecase) Delete(ctx context.Context, blogID, userID, userRole stri
 
 	// 2. Authorization Logic: An Admin can delete any post, a User can only delete their own.
 	isOwner := blogToDelete.AuthorID == userID
-	isAdmin := userRole == string(domain.RoleAdmin)
+	isAdmin := userRole == domain.RoleAdmin
 
 	if !isAdmin && !isOwner {
 		return domain.ErrPermissionDenied

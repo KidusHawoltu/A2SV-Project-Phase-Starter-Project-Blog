@@ -34,13 +34,19 @@ func SetupRouter(
 	// ------------------------
 	// Blog Routes (Protected)
 	// ------------------------
-	blogs := apiV1.Group("/blogs")
-	blogs.Use(infrastructure.AuthMiddleware(jwtService))
-	blogs.POST("", blogController.Create)
-	blogs.GET("", blogController.Fetch)
-	blogs.GET("/:id", blogController.GetByID)
-	blogs.PUT("/:id", blogController.Update)
-	blogs.DELETE("/:id", blogController.Delete)
+	publicBlogs := apiV1.Group("/blogs")
+	{
+		publicBlogs.GET("", blogController.Fetch)
+		publicBlogs.GET("/:id", blogController.GetByID)
+	}
+
+	protectedBlogs := publicBlogs.Group("")
+	protectedBlogs.Use(infrastructure.AuthMiddleware(jwtService))
+	{
+		protectedBlogs.POST("", blogController.Create)
+		protectedBlogs.PUT("/:id", blogController.Update)
+		protectedBlogs.DELETE("/:id", blogController.Delete)
+	}
 
 	return router
 }
