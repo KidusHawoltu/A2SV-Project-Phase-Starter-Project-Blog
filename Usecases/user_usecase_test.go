@@ -85,7 +85,12 @@ func TestUserUsecase_Register(t *testing.T) {
 	})
 
 	t.Run("Email already exists", func(t *testing.T) {
-		existingUser := &domain.User{Email: "exists@test.com"}
+		existingUser := &domain.User{
+			Email:    "exists@test.com",
+			Username: "test user",
+			Password: "12345678j",
+			Role:     domain.RoleUser,
+		}
 
 		mockUserRepo.On("GetByEmail", mock.Anything, existingUser.Email).Return(existingUser, nil).Once()
 
@@ -95,5 +100,3 @@ func TestUserUsecase_Register(t *testing.T) {
 		mockUserRepo.AssertExpectations(t)
 	})
 }
-
-//

@@ -188,7 +188,7 @@ func (s *BlogControllerTestSuite) TestDelete() {
 		router := gin.New()
 		router.DELETE("/blogs/:id", authMiddleware, controller.Delete)
 
-		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", domain.RoleUser).Return(nil).Once()
+		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", "").Return(nil).Once()
 
 		req := httptest.NewRequest(http.MethodDelete, "/blogs/blog-to-delete", nil)
 		w := httptest.NewRecorder()
@@ -208,7 +208,7 @@ func (s *BlogControllerTestSuite) TestDelete() {
 		router := gin.New()
 		router.DELETE("/blogs/:id", authMiddleware, controller.Delete)
 
-		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", domain.RoleUser).Return(domain.ErrPermissionDenied).Once()
+		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", "").Return(domain.ErrPermissionDenied).Once()
 
 		req := httptest.NewRequest(http.MethodDelete, "/blogs/blog-to-delete", nil)
 		w := httptest.NewRecorder()
