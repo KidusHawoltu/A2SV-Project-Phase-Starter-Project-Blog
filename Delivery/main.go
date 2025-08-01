@@ -3,58 +3,81 @@ package main
 import (
 	"A2SV_Starter_Project_Blog/Delivery/controllers"
 	"A2SV_Starter_Project_Blog/Delivery/routers"
-	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
-	repositories "A2SV_Starter_Project_Blog/Repositories"
-	usecases "A2SV_Starter_Project_Blog/Usecases"
+	"A2SV_Starter_Project_Blog/Infrastructure"
+	"A2SV_Starter_Project_Blog/Repositories"
+	"A2SV_Starter_Project_Blog/Usecases"
 	"context"
 	"log"
+	"os"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
-	// --- Configuration ---
-	
-	mongoURI := "mongodb://localhost:27017"
-	dbName := "g6-blog-db"
-	userCollection := "users"
-	jwtSecret := "a-very-secret-key-that-should-be-long-and-random"
-	jwtIssuer := "g6-blog-api"
-	jwtAccessTokenTTL := 15 * time.Minute // 15 minutes
-	serverPort := ":8080"
-	contextTimeout := 2 * time.Second
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, proceeding with environment defaults...")
+	}
 
-	// --- Database Connection ---
+	// Configurations
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://localhost:27017"
+	}
+
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		dbName = "g6-blog-db"
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "a-very-secret-key-that-should-be-long-and-random"
+	}
+
+	jwtIssuer := "g6-blog-api"
+	jwtTTL := 15 * time.Minute
+	serverPort := os.Getenv("PORT")
+	if serverPort == "" {
+		serverPort = "8080"
+	}
+	usecaseTimeout := 5 * time.Second
+
+	// --- MongoDB Setup ---
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
 	if err != nil {
-		log.Fatal("Failed to connect to MongoDB:", err)
+		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 	defer client.Disconnect(context.Background())
 	db := client.Database(dbName)
-	log.Println("Successfully connected to MongoDB.")
-	
-	// --- Dependency Injection ---
 
-	// Infrastructure
+	log.Println("MongoDB connected.")
+
+	// --- Infrastructure Setup ---
 	passwordService := infrastructure.NewPasswordService()
-	jwtService := infrastructure.NewJWTService(jwtSecret, jwtIssuer, jwtAccessTokenTTL)
+	jwtService := infrastructure.NewJWTService(jwtSecret, jwtIssuer, jwtTTL)
 
-	// Repositories
-	userRepository := repositories.NewMongoUserRepository(db, userCollection)
+	// --- Repositories ---
+	userRepo := repositories.NewMongoUserRepository(db, "users")
+	blogRepo := repositories.NewBlogRepository(db.Collection("blogs"))
 
-	// Usecases
-	userUsecase := usecases.NewUserUsecase(userRepository, passwordService, jwtService, contextTimeout)
+	// --- Usecases ---
+	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, usecaseTimeout)
+	blogUsecase := usecases.NewBlogUsecase(blogRepo, usecaseTimeout)
 
-	// Controllers
+	// --- Controllers ---
 	userController := controllers.NewUserController(userUsecase)
+	blogController := controllers.NewBlogController(blogUsecase)
 
-	// --- Router Setup ---
-	router := routers.SetupRouter(userController, jwtService)
-	
-	log.Printf("Starting server on port %s\n", serverPort)
-	if err := router.Run(serverPort); err != nil {
-		log.Fatal("Failed to start server:", err)
+	// --- Setup Router ---
+	router := routers.SetupRouter(userController, blogController, jwtService)
+
+	log.Printf("Server starting on port %s...", serverPort)
+	if err := router.Run(":" + serverPort); err != nil {
+		log.Fatalf("Server failed to start: %v", err)
 	}
 }
