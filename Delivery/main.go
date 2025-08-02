@@ -18,8 +18,10 @@ import (
 
 func main() {
 	// Load .env file
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, proceeding with environment defaults...")
+	if err := godotenv.Load(".env"); err != nil {
+		if err := godotenv.Load("../.env"); err != nil {
+			log.Println("No .env file found, proceeding with environment defaults...")
+		}
 	}
 
 	// Configurations
@@ -46,11 +48,20 @@ func main() {
 	}
 	usecaseTimeout := 5 * time.Second
 
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
 	// --- MongoDB Setup ---
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
+
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		log.Fatalf("Failed to connect to MongoDB (ping failed): %v", err)
+	}
+
 	defer client.Disconnect(context.Background())
 	db := client.Database(dbName)
 
@@ -66,7 +77,7 @@ func main() {
 
 	// --- Usecases ---
 	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, usecaseTimeout)
-	blogUsecase := usecases.NewBlogUsecase(blogRepo, usecaseTimeout)
+	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, usecaseTimeout)
 
 	// --- Controllers ---
 	userController := controllers.NewUserController(userUsecase)

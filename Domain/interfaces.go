@@ -11,9 +11,9 @@ type IBlogUsecase interface {
 
 	GetByID(ctx context.Context, id string) (*Blog, error)
 
-	Update(ctx context.Context, blogID, userID, userRole string, updates map[string]any) (*Blog, error)
+	Update(ctx context.Context, blogID, userID string, userRole Role, updates map[string]any) (*Blog, error)
 
-	Delete(ctx context.Context, blogID, userID, userRole string) error
+	Delete(ctx context.Context, blogID, userID string, userRole Role) error
 }
 
 type IBlogRepository interface {

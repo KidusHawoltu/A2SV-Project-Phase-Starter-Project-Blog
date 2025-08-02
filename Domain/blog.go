@@ -1,13 +1,8 @@
 package domain
 
 import (
-	"errors"
 	"strings"
 	"time"
-)
-
-var (
-	ErrValidation = errors.New("validation error")
 )
 
 type Blog struct {

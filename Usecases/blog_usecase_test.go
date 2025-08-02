@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-// --- Mock Repository ---
+// --- Mock Repositories ---
 
 // MockBlogRepository is a mock implementation of the domain.IBlogRepository interface.
 // It embeds testify's mock.Mock to track calls and set expectations.
@@ -64,16 +64,20 @@ func (m *MockBlogRepository) Delete(ctx context.Context, id string) error {
 
 type BlogUsecaseTestSuite struct {
 	suite.Suite
-	mockRepo *MockBlogRepository
-	usecase  domain.IBlogUsecase
+	mockBlogRepo *MockBlogRepository
+	mockUserRepo *MockUserRepository // Added mock for user repository
+	usecase      domain.IBlogUsecase
 }
 
 // SetupTest runs before each test in the suite.
 // It creates fresh instances to ensure test isolation.
 func (s *BlogUsecaseTestSuite) SetupTest() {
-	s.mockRepo = new(MockBlogRepository)
+	s.mockBlogRepo = new(MockBlogRepository)
+	s.mockUserRepo = new(MockUserRepository) // Initialize the new mock
+
 	// Use a short, fixed timeout for tests.
-	s.usecase = usecases.NewBlogUsecase(s.mockRepo, 2*time.Second)
+	// The constructor call is updated to include the user repository.
+	s.usecase = usecases.NewBlogUsecase(s.mockBlogRepo, s.mockUserRepo, 2*time.Second)
 }
 
 // TestBlogUsecaseTestSuite is the entry point for running the suite.
@@ -84,45 +88,87 @@ func TestBlogUsecaseTestSuite(t *testing.T) {
 // --- Tests ---
 
 func (s *BlogUsecaseTestSuite) TestCreate() {
+	authorID := "user-123"
+	mockAuthor := &domain.User{ID: authorID} // Assuming domain.User has an ID field
+
 	s.Run("Success", func() {
 		// Arrange
-		// The mock repo's `Create` method is configured to set the ID.
-		s.mockRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Blog")).Return(nil).Once()
+		// 1. Mock the user repository to confirm the author exists.
+		s.mockUserRepo.On("GetByID", mock.Anything, authorID).Return(mockAuthor, nil).Once()
+		// 2. Mock the blog repository's Create method. It's configured to set the ID.
+		s.mockBlogRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Blog")).Return(nil).Once()
 
 		// Act
-		blog, err := s.usecase.Create(context.Background(), "A Valid Title", "Valid Content", "user-123", nil)
+		blog, err := s.usecase.Create(context.Background(), "A Valid Title", "Valid Content", authorID, nil)
 
 		// Assert
 		s.NoError(err)
 		s.NotNil(blog)
 		s.Equal("mock-generated-id", blog.ID, "The ID should be set by the repository")
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockUserRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 
 	s.Run("Failure_DomainValidation", func() {
-		// No mock setup is needed because the usecase should fail before calling the repo.
+		// No mock setup is needed because the usecase should fail before calling any repository.
 
 		// Act
-		blog, err := s.usecase.Create(context.Background(), "", "Content", "user-123", nil)
+		blog, err := s.usecase.Create(context.Background(), "", "Content", authorID, nil)
 
 		// Assert
 		s.Error(err)
 		s.ErrorIs(err, domain.ErrValidation)
 		s.Nil(blog)
-		s.mockRepo.AssertNotCalled(s.T(), "Create") // Verify repo was NOT called.
+		s.mockUserRepo.AssertNotCalled(s.T(), "GetByID") // Verify user repo was NOT called.
+		s.mockBlogRepo.AssertNotCalled(s.T(), "Create")  // Verify blog repo was NOT called.
 	})
 
-	s.Run("Failure_RepositoryError", func() {
-		// Arrange
-		s.mockRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Blog")).Return(errors.New("db error")).Once()
+	s.Run("Failure_AuthorNotFound", func() {
+		// Arrange: Mock user repo to return (nil, nil) indicating user does not exist.
+		s.mockUserRepo.On("GetByID", mock.Anything, authorID).Return(nil, nil).Once()
 
 		// Act
-		blog, err := s.usecase.Create(context.Background(), "A Valid Title", "Valid Content", "user-123", nil)
+		blog, err := s.usecase.Create(context.Background(), "A Valid Title", "Valid Content", authorID, nil)
+
+		// Assert
+		s.Error(err)
+		s.ErrorIs(err, domain.ErrUserNotFound)
+		s.Nil(blog)
+		s.mockUserRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertNotCalled(s.T(), "Create") // Verify blog repo was NOT called.
+	})
+
+	s.Run("Failure_UserRepoError", func() {
+		// Arrange: Mock user repo to return an unexpected error.
+		expectedErr := errors.New("user db connection failed")
+		s.mockUserRepo.On("GetByID", mock.Anything, authorID).Return(nil, expectedErr).Once()
+
+		// Act
+		blog, err := s.usecase.Create(context.Background(), "A Valid Title", "Valid Content", authorID, nil)
+
+		// Assert
+		s.Error(err)
+		s.ErrorIs(err, expectedErr)
+		s.Nil(blog)
+		s.mockUserRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertNotCalled(s.T(), "Create") // Verify blog repo was NOT called.
+	})
+
+	s.Run("Failure_BlogRepositoryError", func() {
+		// Arrange
+		// 1. Mock the user lookup to succeed first.
+		s.mockUserRepo.On("GetByID", mock.Anything, authorID).Return(mockAuthor, nil).Once()
+		// 2. Mock the blog repo to fail on creation.
+		s.mockBlogRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Blog")).Return(errors.New("db error")).Once()
+
+		// Act
+		blog, err := s.usecase.Create(context.Background(), "A Valid Title", "Valid Content", authorID, nil)
 
 		// Assert
 		s.Error(err)
 		s.Nil(blog)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockUserRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 }
 
@@ -131,7 +177,7 @@ func (s *BlogUsecaseTestSuite) TestGetByID() {
 		// Arrange
 		mockBlog, _ := domain.NewBlog("Title", "Content", "author", nil)
 		mockBlog.ID = "blog-1"
-		s.mockRepo.On("GetByID", mock.Anything, "blog-1").Return(mockBlog, nil).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, "blog-1").Return(mockBlog, nil).Once()
 
 		// Act
 		blog, err := s.usecase.GetByID(context.Background(), "blog-1")
@@ -139,12 +185,12 @@ func (s *BlogUsecaseTestSuite) TestGetByID() {
 		// Assert
 		s.NoError(err)
 		s.Equal(mockBlog, blog)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 
 	s.Run("Failure_NotFound", func() {
 		// Arrange
-		s.mockRepo.On("GetByID", mock.Anything, "not-found-id").Return(nil, usecases.ErrNotFound).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, "not-found-id").Return(nil, usecases.ErrNotFound).Once()
 
 		// Act
 		blog, err := s.usecase.GetByID(context.Background(), "not-found-id")
@@ -153,7 +199,7 @@ func (s *BlogUsecaseTestSuite) TestGetByID() {
 		s.Error(err)
 		s.ErrorIs(err, usecases.ErrNotFound)
 		s.Nil(blog)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 }
 
@@ -163,56 +209,56 @@ func (s *BlogUsecaseTestSuite) TestDelete() {
 
 	s.Run("Success_AsOwner", func() {
 		// Arrange
-		s.mockRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
-		s.mockRepo.On("Delete", mock.Anything, mockBlog.ID).Return(nil).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
+		s.mockBlogRepo.On("Delete", mock.Anything, mockBlog.ID).Return(nil).Once()
 
 		// Act
-		err := s.usecase.Delete(context.Background(), mockBlog.ID, "owner-id", string(domain.RoleUser))
+		err := s.usecase.Delete(context.Background(), mockBlog.ID, "owner-id", domain.RoleUser)
 
 		// Assert
 		s.NoError(err)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 
 	s.Run("Success_AsAdmin", func() {
 		// Arrange
-		s.mockRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
-		s.mockRepo.On("Delete", mock.Anything, mockBlog.ID).Return(nil).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
+		s.mockBlogRepo.On("Delete", mock.Anything, mockBlog.ID).Return(nil).Once()
 
 		// Act
 		// The admin's ID is different from the owner's, but their role grants permission.
-		err := s.usecase.Delete(context.Background(), mockBlog.ID, "admin-id", string(domain.RoleAdmin))
+		err := s.usecase.Delete(context.Background(), mockBlog.ID, "admin-id", domain.RoleAdmin)
 
 		// Assert
 		s.NoError(err)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 
 	s.Run("Failure_PermissionDenied", func() {
 		// Arrange
-		s.mockRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
 		// We DO NOT mock the "Delete" call because it should never be reached.
 
 		// Act
-		err := s.usecase.Delete(context.Background(), mockBlog.ID, "not-the-owner-id", string(domain.RoleUser))
+		err := s.usecase.Delete(context.Background(), mockBlog.ID, "not-the-owner-id", domain.RoleUser)
 
 		// Assert
 		s.Error(err)
 		s.ErrorIs(err, domain.ErrPermissionDenied)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 
 	s.Run("Failure_BlogNotFound", func() {
 		// Arrange
-		s.mockRepo.On("GetByID", mock.Anything, "not-found-id").Return(nil, usecases.ErrNotFound).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, "not-found-id").Return(nil, usecases.ErrNotFound).Once()
 
 		// Act
-		err := s.usecase.Delete(context.Background(), "not-found-id", "any-user", string(domain.RoleUser))
+		err := s.usecase.Delete(context.Background(), "not-found-id", "any-user", domain.RoleUser)
 
 		// Assert
 		s.Error(err)
 		s.ErrorIs(err, usecases.ErrNotFound)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 }
 
@@ -223,46 +269,46 @@ func (s *BlogUsecaseTestSuite) TestUpdate() {
 
 	s.Run("Success", func() {
 		// Arrange
-		s.mockRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
-		s.mockRepo.On("Update", mock.Anything, mock.AnythingOfType("*domain.Blog")).Return(nil).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
+		s.mockBlogRepo.On("Update", mock.Anything, mock.AnythingOfType("*domain.Blog")).Return(nil).Once()
 
 		// Act
-		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "owner-id", string(domain.RoleUser), updates)
+		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "owner-id", domain.RoleUser, updates)
 
 		// Assert
 		s.NoError(err)
 		s.NotNil(updatedBlog)
 		s.Equal("New Valid Title", updatedBlog.Title) // Verify the title was updated.
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 
 	s.Run("Failure_PermissionDenied", func() {
 		// Arrange
-		s.mockRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
 		// No mock for "Update" as it shouldn't be called.
 
 		// Act
-		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "not-owner-id", string(domain.RoleUser), updates)
+		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "not-owner-id", domain.RoleUser, updates)
 
 		// Assert
 		s.Error(err)
 		s.ErrorIs(err, domain.ErrPermissionDenied)
 		s.Nil(updatedBlog)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 
 	s.Run("Failure_InvalidUpdateData", func() {
 		// Arrange
 		invalidUpdates := map[string]interface{}{"title": "  "} // Update to an invalid empty title
-		s.mockRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
+		s.mockBlogRepo.On("GetByID", mock.Anything, mockBlog.ID).Return(mockBlog, nil).Once()
 
 		// Act
-		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "owner-id", string(domain.RoleUser), invalidUpdates)
+		updatedBlog, err := s.usecase.Update(context.Background(), mockBlog.ID, "owner-id", domain.RoleUser, invalidUpdates)
 
 		// Assert
 		s.Error(err)
 		s.ErrorIs(err, domain.ErrValidation)
 		s.Nil(updatedBlog)
-		s.mockRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 }
