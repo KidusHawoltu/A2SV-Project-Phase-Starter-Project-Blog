@@ -124,9 +124,9 @@ func TestUserUsecase_Login(t *testing.T) {
 	user := &domain.User{ID: "user-123", Email: "test@test.com", Username: "testuser", Password: "hashed_password", Role: domain.RoleUser}
 
 	t.Run("Success with Email", func(t *testing.T) {
-		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(nil).Once()
+		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
 		mockPassSvc.On("ComparePassword", user.Password, "password123").Return(nil).Once()
-		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("valid.token",nil).Once()
+		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("valid.token", nil).Once()
 
 		token, err := uc.Login(context.Background(), user.Email, "password123")
 		assert.NoError(t, err)
@@ -134,10 +134,10 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockUserRepo.AssertExpectations(t)
 	})
 
-	t.Run("Success with Username", func(t *testing.T){
-		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(nil).Once()
+	t.Run("Success with Username", func(t *testing.T) {
+		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(user, nil).Once()
 		mockPassSvc.On("ComparePassword", user.Password, "password123").Return(nil).Once()
-		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("valid.token",nil).Once()
+		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("valid.token", nil).Once()
 
 		token, err := uc.Login(context.Background(), user.Username, "password123")
 		assert.NoError(t, err)
