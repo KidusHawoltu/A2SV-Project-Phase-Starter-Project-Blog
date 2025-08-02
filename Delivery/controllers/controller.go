@@ -65,6 +65,7 @@ func (ctrl *UserController) Register(c *gin.Context) {
 
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required"`
+	username string `json:"username,omitempty"`
 	Password string `json:"password" binding:"required"`
 }
 
@@ -75,7 +76,19 @@ func (ctrl *UserController) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := ctrl.userUsecase.Login(c.Request.Context(), req.Email, req.Password)
+	//validate that at least one identifier is provided.
+	if req.username == "" && req.Email == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email or username is required"})
+		return
+	}
+
+	// prefer email if both are provided
+	identifier := req.Email
+	if identifier == "" {
+		identifier = req.username
+	}
+
+	token, err := ctrl.userUsecase.Login(c.Request.Context(), identifier, req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": domain.ErrAuthenticationFailed.Error()})
 		return
