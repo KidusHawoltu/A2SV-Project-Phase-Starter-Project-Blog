@@ -90,6 +90,19 @@ func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*do
 	return toUserDomain(mongoModel), nil
 }
 
+// GetByUsername fetches a single user by their username.
+func (r *mongoUserRepository) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
+	var mongoModel userMongo
+	err := r.collection.FindOne(ctx, bson.M{"username": username}).Decode(&mongoModel)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return toUserDomain(mongoModel), nil
+}
+
 func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {

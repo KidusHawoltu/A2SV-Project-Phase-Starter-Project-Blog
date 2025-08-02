@@ -4,6 +4,7 @@ import (
 	domain "A2SV_Starter_Project_Blog/Domain"
 	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
 	"context"
+	"net/mail"
 	"time"
 )
 
@@ -13,11 +14,12 @@ import (
 type UserRepository interface {
 	Create(ctx context.Context, user *domain.User) error
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 }
 type UserUsecase interface {
 	Register(ctx context.Context, user *domain.User) error
-	Login(ctx context.Context, email, password string) (accessToken string, err error)
+	Login(ctx context.Context, identifier, password string) (accessToken string, err error)
 }
 
 type userUsecase struct {
@@ -53,15 +55,26 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 	return uc.userRepo.Create(ctx, user)
 }
 
-func (uc *userUsecase) Login(c context.Context, email, password string) (string, error) {
+func (uc *userUsecase) Login(c context.Context, identifier, password string) (string, error) {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
-	user, err := uc.userRepo.GetByEmail(ctx, email)
-	if err != nil || user == nil { return "", domain.ErrAuthenticationFailed }
+	var user *domain.User
+	var err error 
 
-	err = uc.passwordService.ComparePassword(user.Password, password)
-	if err != nil { return "", domain.ErrAuthenticationFailed }
+	if _, mailErr := mail.ParseAddress(identifier); mailErr == nil {
+		user, err = uc.userRepo.GetByEmail(ctx, identifier)
+	} else {
+		user, err = uc.userRepo.GetByUsername(ctx, identifier)
+	}
 
+	if err != nil {
+		return "", err
+	}
+	if user == nil {
+		return  "", domain.ErrAuthenticationFailed //user not found
+	}
+	
+	// Generate and return access token
 	return uc.jwtService.GenerateAccessToken(user.ID, user.Role)
 }

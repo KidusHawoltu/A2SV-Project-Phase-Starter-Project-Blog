@@ -2,6 +2,7 @@ package usecases_test
 
 import (
 	domain "A2SV_Starter_Project_Blog/Domain"
+	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
 	"testing"
@@ -23,6 +24,14 @@ func (m *MockUserRepository) Create(ctx context.Context, user *domain.User) erro
 }
 func (m *MockUserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	args := m.Called(ctx, email)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.User), args.Error(1)
+}
+
+func (m *MockUserRepository) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
+	args := m.Called(ctx, username)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -51,6 +60,11 @@ func (m *MockPasswordService) ComparePassword(hashedPassword, password string) e
 
 type MockJWTService struct {
 	mock.Mock
+}
+
+// ValidateToken implements infrastructure.JWTService.
+func (m *MockJWTService) ValidateToken(tokenString string) (*infrastructure.JWTClaims, error) {
+	panic("unimplemented")
 }
 
 func (m *MockJWTService) GenerateAccessToken(userID string, role domain.Role) (string, error) {
@@ -98,5 +112,37 @@ func TestUserUsecase_Register(t *testing.T) {
 
 		assert.Equal(t, domain.ErrEmailExists, err)
 		mockUserRepo.AssertExpectations(t)
+	})
+}
+
+func TestUserUsecase_Login(t *testing.T) {
+	mockUserRepo := new(MockUserRepository)
+	mockPassSvc := new(MockPasswordService)
+	mockJwtSvc := new(MockJWTService)
+
+	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, 2*time.Second)
+	user := &domain.User{ID: "user-123", Email: "test@test.com", Username: "testuser", Password: "hashed_password", Role: domain.RoleUser}
+
+	t.Run("Success with Email", func(t *testing.T) {
+		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(nil).Once()
+		mockPassSvc.On("ComparePassword", user.Password, "password123").Return(nil).Once()
+		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("valid.token",nil).Once()
+
+		token, err := uc.Login(context.Background(), user.Email, "password123")
+		assert.NoError(t, err)
+		assert.Equal(t, "valid.token", token)
+		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Success with Username", func(t *testing.T){
+		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(nil).Once()
+		mockPassSvc.On("ComparePassword", user.Password, "password123").Return(nil).Once()
+		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("valid.token",nil).Once()
+
+		token, err := uc.Login(context.Background(), user.Username, "password123")
+		assert.NoError(t, err)
+		assert.Equal(t, "valid.token", token)
+		mockUserRepo.AssertExpectations(t)
+
 	})
 }
