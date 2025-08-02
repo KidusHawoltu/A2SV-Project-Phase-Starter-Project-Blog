@@ -11,6 +11,7 @@ var (
 	ErrPasswordTooShort   = errors.New("password must be at least 8 characters")
 	ErrInvalidEmailFormat = errors.New("invalid email format")
 	ErrInvalidRole        = errors.New("invalid role provided")
+	ErrValidation         = errors.New("validation error")
 
 	// Application-level errors
 	ErrEmailExists          = errors.New("a user with this email already exists")

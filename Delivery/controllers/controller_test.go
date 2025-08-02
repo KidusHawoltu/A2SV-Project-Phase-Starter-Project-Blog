@@ -31,7 +31,53 @@ func (m *MockUserUsecase) Login(ctx context.Context, email, password string) (st
 	return args.String(0), args.Error(1)
 }
 
-// --- Test Suite ---
+// --- Mock BlogUsecase ---
+type MockBlogUsecase struct {
+	mock.Mock
+}
+
+func (m *MockBlogUsecase) Create(ctx context.Context, title, content, authorID string, tags []string) (*domain.Blog, error) {
+	args := m.Called(ctx, title, content, authorID, tags)
+	var blog *domain.Blog
+	if args.Get(0) != nil {
+		blog = args.Get(0).(*domain.Blog)
+	}
+	return blog, args.Error(1)
+}
+
+func (m *MockBlogUsecase) Fetch(ctx context.Context, page, limit int64) ([]*domain.Blog, int64, error) {
+	args := m.Called(ctx, page, limit)
+	var blogs []*domain.Blog
+	if args.Get(0) != nil {
+		blogs = args.Get(0).([]*domain.Blog)
+	}
+	return blogs, args.Get(1).(int64), args.Error(2)
+}
+
+func (m *MockBlogUsecase) GetByID(ctx context.Context, id string) (*domain.Blog, error) {
+	args := m.Called(ctx, id)
+	var blog *domain.Blog
+	if args.Get(0) != nil {
+		blog = args.Get(0).(*domain.Blog)
+	}
+	return blog, args.Error(1)
+}
+
+func (m *MockBlogUsecase) Update(ctx context.Context, blogID, userID string, userRole domain.Role, updates map[string]interface{}) (*domain.Blog, error) {
+	args := m.Called(ctx, blogID, userID, userRole, updates)
+	var blog *domain.Blog
+	if args.Get(0) != nil {
+		blog = args.Get(0).(*domain.Blog)
+	}
+	return blog, args.Error(1)
+}
+
+func (m *MockBlogUsecase) Delete(ctx context.Context, blogID, userID string, userRole domain.Role) error {
+	args := m.Called(ctx, blogID, userID, userRole)
+	return args.Error(0)
+}
+
+// --- User Controller Test Suite ---
 type UserControllerTestSuite struct {
 	suite.Suite
 }

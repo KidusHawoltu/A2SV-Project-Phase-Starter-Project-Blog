@@ -210,7 +210,7 @@ func (bc *BlogController) Fetch(c *gin.Context) {
 func (bc *BlogController) Update(c *gin.Context) {
 	blogID := c.Param("id")
 	userID := c.GetString("userID")
-	userRole := c.GetString("role")
+	userRole := domain.Role(c.GetString("role"))
 
 	var updates UpdateBlogRequest
 	if err := c.ShouldBindJSON(&updates); err != nil {
@@ -230,7 +230,7 @@ func (bc *BlogController) Update(c *gin.Context) {
 func (bc *BlogController) Delete(c *gin.Context) {
 	blogID := c.Param("id")
 	userID := c.GetString("userID")
-	userRole := c.GetString("role")
+	userRole := domain.Role(c.GetString("role"))
 
 	err := bc.blogUsecase.Delete(c.Request.Context(), blogID, userID, userRole)
 	if err != nil {
