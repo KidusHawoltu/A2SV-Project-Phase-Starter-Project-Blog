@@ -2,10 +2,11 @@ package repositories_test
 
 import (
 	domain "A2SV_Starter_Project_Blog/Domain"
-	// Use dot import for convenience to access exported repository types and functions
 	. "A2SV_Starter_Project_Blog/Repositories"
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
+	"math"
+	"sort"
 	"testing"
 	"time"
 
@@ -45,29 +46,42 @@ func TestBlogRepository(t *testing.T) {
 	suite.Run(t, new(BlogRepositoryTestSuite))
 }
 
-// TestCreateAndGetByID asserts that a blog can be created and then retrieved successfully.
-func (s *BlogRepositoryTestSuite) TestCreateAndGetByID() {
+func (s *BlogRepositoryTestSuite) TestCreate() {
 	ctx := context.Background()
 	blog, err := domain.NewBlog("Test Title", "Test Content", s.fixedAuthorID.Hex(), []string{"go", "test"})
 	s.Require().NoError(err, "NewBlog should not fail")
 
-	// Act: Create the blog
 	err = s.repo.Create(ctx, blog)
+	s.Require().NoError(err, "Create should succeed")
+	s.NotEmpty(blog.ID, "Blog ID should be populated")
 
-	// Assert: Check creation
-	s.NoError(err, "Create should succeed")
-	s.NotEmpty(blog.ID, "Blog ID should be populated by the Create method")
+	// Verify directly from the DB
+	var createdModel BlogModel
+	objID, _ := primitive.ObjectIDFromHex(blog.ID)
+	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&createdModel)
+	s.Require().NoError(err)
 
-	// Act: Get the blog by its new ID
-	foundBlog, err := s.repo.GetByID(ctx, blog.ID)
+	s.Equal("Test Title", createdModel.Title)
+	s.Equal(s.fixedAuthorID, createdModel.AuthorID)
+	s.Equal([]string{"go", "test"}, createdModel.Tags)
+	s.Equal(float64(0), createdModel.EngagementScore, "EngagementScore should be initialized to 0")
+}
 
-	// Assert: Check retrieval
-	s.NoError(err, "GetByID should succeed")
+func (s *BlogRepositoryTestSuite) TestGetByID() {
+	ctx := context.Background()
+	originalBlog, _ := domain.NewBlog("Gettable Blog", "Content", s.fixedAuthorID.Hex(), []string{"get"})
+	err := s.repo.Create(ctx, originalBlog)
+	s.Require().NoError(err, "Setup for GetByID failed: could not create blog")
+
+	foundBlog, err := s.repo.GetByID(ctx, originalBlog.ID)
+
+	// Assert: Check the results of the GetByID call.
+	s.NoError(err, "GetByID should succeed for an existing blog")
 	s.NotNil(foundBlog)
-	s.Equal(blog.ID, foundBlog.ID)
-	s.Equal("Test Title", foundBlog.Title)
+	s.Equal(originalBlog.ID, foundBlog.ID)
+	s.Equal("Gettable Blog", foundBlog.Title)
 	s.Equal(s.fixedAuthorID.Hex(), foundBlog.AuthorID)
-	s.Equal([]string{"go", "test"}, foundBlog.Tags)
+	s.Equal([]string{"get"}, foundBlog.Tags)
 }
 
 // TestGetByID_NotFound asserts that ErrNotFound is returned for a non-existent ID.
@@ -139,6 +153,21 @@ func (s *BlogRepositoryTestSuite) TestDelete() {
 	s.Nil(foundBlog)
 }
 
+func calculatePopularity(score float64, createdAt time.Time) float64 {
+	// Calculate the age of the post in hours.
+	ageInHours := time.Since(createdAt).Hours()
+
+	// Denominator: (Age in hours + 2) ^ Gravity
+	denominator := math.Pow(ageInHours+2, Gravity)
+
+	// Avoid division by zero, though unlikely with the +2 buffer.
+	if denominator == 0 {
+		return score
+	}
+
+	return score / denominator
+}
+
 func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 	ctx := context.Background()
 	author1 := primitive.NewObjectID()
@@ -146,16 +175,25 @@ func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 
 	// Arrange: Create a diverse set of blogs to test against.
 	blogsToCreate := []*domain.Blog{
-		{Title: "Golang Basics", AuthorID: author1.Hex(), Tags: []string{"go", "beginner"}, CreatedAt: time.Now().Add(-5 * 24 * time.Hour), Views: 100, Likes: 10},     // 0
-		{Title: "Advanced Golang", AuthorID: author1.Hex(), Tags: []string{"go", "advanced"}, CreatedAt: time.Now().Add(-4 * 24 * time.Hour), Views: 200, Likes: 20},   // 1
-		{Title: "Intro to Docker", AuthorID: author2.Hex(), Tags: []string{"docker", "devops"}, CreatedAt: time.Now().Add(-3 * 24 * time.Hour), Views: 150, Likes: 15}, // 2
-		{Title: "Docker with Go", AuthorID: author2.Hex(), Tags: []string{"docker", "go"}, CreatedAt: time.Now().Add(-2 * 24 * time.Hour), Views: 300, Likes: 5},       // 3
-		{Title: "REST APIs", AuthorID: author1.Hex(), Tags: []string{"api", "backend"}, CreatedAt: time.Now().Add(-1 * 24 * time.Hour), Views: 50, Likes: 30},          // 4
+		{Title: "Golang Basics", AuthorID: author1.Hex(), Tags: []string{"go", "beginner"}, CreatedAt: time.Now().Add(-120 * time.Hour), Views: 100, Likes: 10, Dislikes: 1},    // 0
+		{Title: "Advanced Golang", AuthorID: author1.Hex(), Tags: []string{"go", "advanced"}, CreatedAt: time.Now().Add(-96 * time.Hour), Views: 200, Likes: 20, Dislikes: 2},   // 1
+		{Title: "Intro to Docker", AuthorID: author2.Hex(), Tags: []string{"docker", "devops"}, CreatedAt: time.Now().Add(-72 * time.Hour), Views: 150, Likes: 15, Dislikes: 5}, // 2
+		{Title: "Docker with Go", AuthorID: author2.Hex(), Tags: []string{"docker", "go"}, CreatedAt: time.Now().Add(-48 * time.Hour), Views: 300, Likes: 5, Dislikes: 10},      // 3 (negative score)
+		{Title: "REST APIs", AuthorID: author1.Hex(), Tags: []string{"api", "backend"}, CreatedAt: time.Now().Add(-1 * time.Hour), Views: 50, Likes: 30, Dislikes: 0},           // 4 (newest and high score)
 	}
 
-	for _, blog := range blogsToCreate {
+	engagementScores := make(map[string]float64)
+	for i, blog := range blogsToCreate {
 		err := s.repo.Create(ctx, blog)
 		s.Require().NoError(err)
+
+		// Manually calculate and set the engagement score for the test.
+		score := (float64(blog.Likes) * LikeWeight) + (float64(blog.Dislikes) * DislikeWeight) + (float64(blog.Views) * ViewWeight)
+		objID, _ := primitive.ObjectIDFromHex(blog.ID)
+		_, err = testDB.Collection(s.collection).UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"engagementScore": score}})
+		s.Require().NoError(err)
+		blogsToCreate[i].ID = blog.ID // Ensure original slice has the ID
+		engagementScores[blog.ID] = score
 	}
 
 	// Helper to extract IDs for easier comparison
@@ -212,7 +250,7 @@ func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 
 	s.Run("Filter by Date Range", func() {
 		startDate := time.Now().Add(-3 * 24 * time.Hour).Add(-time.Hour) // 3 days and 1 hour ago
-		endDate := time.Now().Add(-1 * 24 * time.Hour).Add(time.Hour)    // 1 day ago plus 1 hour
+		endDate := time.Now()                                            // now to include the newest posts
 		opts := domain.BlogSearchFilterOptions{StartDate: &startDate, EndDate: &endDate, Page: 1, Limit: 10}
 		blogs, _, err := s.repo.SearchAndFilter(ctx, opts)
 		s.NoError(err)
@@ -249,11 +287,25 @@ func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 
 	s.Run("Sort by Popularity", func() {
 		opts := domain.BlogSearchFilterOptions{SortBy: "popularity", Page: 1, Limit: 10}
-		blogs, _, err := s.repo.SearchAndFilter(ctx, opts)
+		actualBlogs, _, err := s.repo.SearchAndFilter(ctx, opts)
 		s.NoError(err)
-		// Expected order by views desc: 300, 200, 150, 100, 50
-		expectedOrder := []string{blogsToCreate[3].ID, blogsToCreate[1].ID, blogsToCreate[2].ID, blogsToCreate[0].ID, blogsToCreate[4].ID}
-		s.Equal(expectedOrder, getBlogIDs(blogs))
+		s.Require().Len(actualBlogs, 5)
+
+		blogsToSort := make([]*domain.Blog, len(blogsToCreate))
+		copy(blogsToSort, blogsToCreate)
+		sort.Slice(blogsToSort, func(i, j int) bool {
+			scoreI := engagementScores[blogsToSort[i].ID]
+			scoreJ := engagementScores[blogsToSort[j].ID]
+
+			popI := calculatePopularity(scoreI, blogsToSort[i].CreatedAt)
+			popJ := calculatePopularity(scoreJ, blogsToSort[j].CreatedAt)
+
+			return popI > popJ // Descending order
+		})
+		actualIDs := getBlogIDs(actualBlogs)
+		expectedIDs := getBlogIDs(blogsToSort)
+
+		s.Equal(expectedIDs, actualIDs, "The order of blogs returned by the database does not match the expected popularity sort order")
 	})
 
 	s.Run("Pagination", func() {
@@ -289,6 +341,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementLikes() {
 		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 		s.NoError(err)
 		s.Equal(int64(11), updatedBlog.Likes, "Likes count should be incremented by 1")
+		s.Equal(LikeWeight, updatedBlog.EngagementScore, "Engagement score should increase by the like weight")
 	})
 
 	s.Run("Decrement", func() {
@@ -303,6 +356,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementLikes() {
 		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 		s.NoError(err)
 		s.Equal(int64(10), updatedBlog.Likes, "Likes count should be decremented back to 10")
+		s.Equal(float64(0), updatedBlog.EngagementScore, "Engagement score should be back to zero")
 	})
 }
 
@@ -325,6 +379,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementDislikes() {
 	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 	s.NoError(err)
 	s.Equal(int64(6), updatedBlog.Dislikes, "Dislikes count should be incremented")
+	s.Equal(DislikeWeight, updatedBlog.EngagementScore, "Engagement score should decrease by the dislike weight")
 }
 
 func (s *BlogRepositoryTestSuite) TestIncrementViews() {
@@ -347,6 +402,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementViews() {
 	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 	s.NoError(err)
 	s.Equal(int64(2), updatedBlog.Views, "Views count should be 2 after two increments")
+	s.Equal(2*ViewWeight, updatedBlog.EngagementScore, "Engagement score should be twice the view weight")
 }
 
 func (s *BlogRepositoryTestSuite) TestUpdateInteractionCounts() {
@@ -371,4 +427,6 @@ func (s *BlogRepositoryTestSuite) TestUpdateInteractionCounts() {
 	s.NoError(err)
 	s.Equal(int64(21), updatedBlog.Likes, "Likes count should be 21")
 	s.Equal(int64(9), updatedBlog.Dislikes, "Dislikes count should be 9")
+	expectedScoreChange := (1 * LikeWeight) + (-1 * DislikeWeight)
+	s.Equal(expectedScoreChange, updatedBlog.EngagementScore, "Engagement score should reflect the combined change")
 }
