@@ -46,6 +46,7 @@ func SetupRouter(
 		protectedBlogs.POST("", blogController.Create)
 		protectedBlogs.PUT("/:id", blogController.Update)
 		protectedBlogs.DELETE("/:id", blogController.Delete)
+		protectedBlogs.POST("/:id/interact", blogController.InteractWithBlog)
 	}
 
 	return router

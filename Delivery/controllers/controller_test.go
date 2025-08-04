@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -169,6 +170,11 @@ func (m *MockBlogUsecase) Update(ctx context.Context, blogID, userID string, use
 
 func (m *MockBlogUsecase) Delete(ctx context.Context, blogID, userID string, userRole domain.Role) error {
 	args := m.Called(ctx, blogID, userID, userRole)
+	return args.Error(0)
+}
+
+func (m *MockBlogUsecase) InteractWithBlog(ctx context.Context, blogID, userID string, action domain.ActionType) error {
+	args := m.Called(ctx, blogID, userID, action)
 	return args.Error(0)
 }
 
@@ -502,5 +508,90 @@ func (s *BlogControllerTestSuite) TestSearchAndFilter() {
 		s.Equal(http.StatusBadRequest, w.Code)
 		// Usecase should NOT have been called
 		mockUsecase.AssertNotCalled(s.T(), "SearchAndFilter", mock.Anything, mock.Anything)
+	})
+}
+
+func (s *BlogControllerTestSuite) TestInteractWithBlog() {
+	// Middleware to simulate an authenticated user.
+	authMiddleware := func(c *gin.Context) {
+		c.Set("userID", "user-123")
+		c.Next()
+	}
+
+	s.Run("Success - Like action", func() {
+		// Arrange
+		mockUsecase := new(MockBlogUsecase)
+		controller := controllers.NewBlogController(mockUsecase)
+		router := gin.New()
+		router.POST("/blogs/:id/interact", authMiddleware, controller.InteractWithBlog)
+
+		blogID := "blog-abc"
+		action := domain.ActionTypeLike
+
+		// Expect the usecase to be called with the correct parameters.
+		mockUsecase.On("InteractWithBlog", mock.Anything, blogID, "user-123", action).Return(nil).Once()
+
+		// Create the request body.
+		reqBody := controllers.InteractBlogRequest{Action: action}
+		body, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/blogs/"+blogID+"/interact", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Act
+		router.ServeHTTP(w, req)
+
+		// Assert
+		s.Equal(http.StatusOK, w.Code)
+		mockUsecase.AssertExpectations(s.T())
+	})
+
+	s.Run("Failure - Invalid action in body", func() {
+		// Arrange
+		mockUsecase := new(MockBlogUsecase)
+		controller := controllers.NewBlogController(mockUsecase)
+		router := gin.New()
+		router.POST("/blogs/:id/interact", authMiddleware, controller.InteractWithBlog)
+
+		// Create a request with an invalid action string.
+		invalidBody := `{"action": "invalid-action"}`
+		req := httptest.NewRequest(http.MethodPost, "/blogs/some-id/interact", strings.NewReader(invalidBody))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Act
+		router.ServeHTTP(w, req)
+
+		// Assert
+		s.Equal(http.StatusBadRequest, w.Code, "Expected Bad Request due to validation failure")
+		// The usecase should NOT have been called.
+		mockUsecase.AssertNotCalled(s.T(), "InteractWithBlog", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	s.Run("Failure - Usecase returns an error", func() {
+		// Arrange
+		mockUsecase := new(MockBlogUsecase)
+		controller := controllers.NewBlogController(mockUsecase)
+		router := gin.New()
+		router.POST("/blogs/:id/interact", authMiddleware, controller.InteractWithBlog)
+
+		blogID := "not-found-id"
+		action := domain.ActionTypeLike
+
+		// Expect the usecase to be called and to return an error.
+		mockUsecase.On("InteractWithBlog", mock.Anything, blogID, "user-123", action).Return(usecases.ErrNotFound).Once()
+
+		reqBody := controllers.InteractBlogRequest{Action: action}
+		body, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/blogs/"+blogID+"/interact", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		// Act
+		router.ServeHTTP(w, req)
+
+		// Assert
+		s.Equal(http.StatusNotFound, w.Code, "Expected Not Found status from HandleError")
+		mockUsecase.AssertExpectations(s.T())
 	})
 }

@@ -17,18 +17,20 @@ var (
 // blogUsecase implements the domain.BlogUsecase interface.
 // It orchestrates the business logic, using the repository for persistence.
 type blogUsecase struct {
-	blogRepo       domain.IBlogRepository
-	userRepo       UserRepository
-	contextTimeout time.Duration
+	blogRepo        domain.IBlogRepository
+	userRepo        UserRepository
+	interactionRepo domain.IInteractionRepository
+	contextTimeout  time.Duration
 }
 
 // NewBlogUsecase is the constructor for a blogUsecase.
 // It uses dependency injection to receive its dependencies.
-func NewBlogUsecase(blogRepository domain.IBlogRepository, userRepository UserRepository, timeout time.Duration) domain.IBlogUsecase {
+func NewBlogUsecase(blogRepository domain.IBlogRepository, userRepository UserRepository, interactionRepository domain.IInteractionRepository, timeout time.Duration) domain.IBlogUsecase {
 	return &blogUsecase{
-		blogRepo:       blogRepository,
-		userRepo:       userRepository,
-		contextTimeout: timeout,
+		blogRepo:        blogRepository,
+		userRepo:        userRepository,
+		interactionRepo: interactionRepository,
+		contextTimeout:  timeout,
 	}
 }
 
@@ -108,8 +110,17 @@ func (bu *blogUsecase) GetByID(ctx context.Context, id string) (*domain.Blog, er
 	ctx, cancel := context.WithTimeout(ctx, bu.contextTimeout)
 	defer cancel()
 
-	// The repository will handle translating a DB "not found" to our usecases.ErrNotFound.
-	return bu.blogRepo.GetByID(ctx, id)
+	blog, err := bu.blogRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Increment the view of the blog by 1 in background
+	go func() {
+		_ = bu.blogRepo.IncrementViews(context.Background(), id)
+	}()
+
+	return blog, nil
 }
 
 // Update handles the logic for updating a post, including authorization.
@@ -177,4 +188,70 @@ func (bu *blogUsecase) Delete(ctx context.Context, blogID, userID string, userRo
 
 	// 3. If authorization passes, call the repository to delete the post.
 	return bu.blogRepo.Delete(ctx, blogID)
+}
+
+func (bu *blogUsecase) InteractWithBlog(ctx context.Context, blogID, userID string, newAction domain.ActionType) error {
+	ctx, cancel := context.WithTimeout(ctx, bu.contextTimeout)
+	defer cancel()
+
+	// Step 1: Check if an interaction already exists for this user and blog.
+	interaction, err := bu.interactionRepo.Get(ctx, userID, blogID)
+	// We specifically check for ErrNotFound. Any other error is a real problem.
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return err // Return on unexpected database errors
+	}
+
+	// --- Scenario 1: No previous interaction exists. ---
+	if interaction == nil {
+		newInteraction := &domain.BlogInteraction{
+			UserID: userID,
+			BlogID: blogID,
+			Action: newAction,
+		}
+		if err := bu.interactionRepo.Create(ctx, newInteraction); err != nil {
+			return err
+		}
+
+		if newAction == domain.ActionTypeLike {
+			return bu.blogRepo.IncrementLikes(ctx, blogID, 1)
+		}
+		return bu.blogRepo.IncrementDislikes(ctx, blogID, 1)
+	}
+
+	// --- Scenario 2: The user is repeating the same action (e.g., clicking "like" on an already-liked post). ---
+	// This is an "undo" operation.
+	if interaction.Action == newAction {
+		// Delete the interaction record to remove their "vote".
+		if err := bu.interactionRepo.Delete(ctx, interaction.ID); err != nil {
+			return err
+		}
+
+		// Atomically decrement the correct counter.
+		if newAction == domain.ActionTypeLike {
+			return bu.blogRepo.IncrementLikes(ctx, blogID, -1)
+		}
+		return bu.blogRepo.IncrementDislikes(ctx, blogID, -1)
+	}
+
+	// --- Scenario 3: The user is switching their action (e.g., from dislike to like). ---
+	// First, update the action in the interaction record.
+	interaction.Action = newAction
+	if err := bu.interactionRepo.Update(ctx, interaction); err != nil {
+		return err
+	}
+
+	// Prepare the increments for the single atomic update.
+	var likesIncrement, dislikesIncrement int
+	if newAction == domain.ActionTypeLike {
+		// Switching TO a like: likes go up, dislikes go down.
+		likesIncrement = 1
+		dislikesIncrement = -1
+	} else { // Switching TO a dislike
+		likesIncrement = -1
+		dislikesIncrement = 1
+	}
+
+	// Call the single, atomic repository method to update both counts.
+	// This prevents data inconsistency if one of the two updates were to fail.
+	return bu.blogRepo.UpdateInteractionCounts(ctx, blogID, likesIncrement, dislikesIncrement)
 }

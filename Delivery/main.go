@@ -74,10 +74,11 @@ func main() {
 	// --- Repositories ---
 	userRepo := repositories.NewMongoUserRepository(db, "users")
 	blogRepo := repositories.NewBlogRepository(db.Collection("blogs"))
+	interactionRepo := repositories.NewInteractionRepository(db.Collection("interactions"))
 
 	// --- Usecases ---
 	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, usecaseTimeout)
-	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, usecaseTimeout)
+	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
 
 	// --- Controllers ---
 	userController := controllers.NewUserController(userUsecase)

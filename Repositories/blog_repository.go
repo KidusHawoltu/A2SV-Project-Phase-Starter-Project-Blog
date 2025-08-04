@@ -265,6 +265,63 @@ func (r *blogRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *blogRepository) IncrementLikes(ctx context.Context, blogID string, value int) error {
+	objID, err := primitive.ObjectIDFromHex(blogID)
+	if err != nil {
+		return usecases.ErrInternal
+	}
+	filter := bson.M{"_id": objID}
+	update := bson.M{"$inc": bson.M{"likes": value}}
+
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	return err
+}
+
+func (r *blogRepository) IncrementDislikes(ctx context.Context, blogID string, value int) error {
+	objID, err := primitive.ObjectIDFromHex(blogID)
+	if err != nil {
+		return usecases.ErrInternal
+	}
+	filter := bson.M{"_id": objID}
+	update := bson.M{"$inc": bson.M{"dislikes": value}}
+
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	return err
+}
+
+func (r *blogRepository) IncrementViews(ctx context.Context, blogID string) error {
+	objID, err := primitive.ObjectIDFromHex(blogID)
+	if err != nil {
+		return err
+	}
+	filter := bson.M{"_id": objID}
+	update := bson.M{"$inc": bson.M{"views": 1}}
+
+	// Using UpdateOne is fine, it's a "fire-and-forget" operation.
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	return err // The caller (e.g., a goroutine) can decide what to do with this error.
+}
+
+func (r *blogRepository) UpdateInteractionCounts(ctx context.Context, blogID string, likesInc, dislikesInc int) error {
+	objID, err := primitive.ObjectIDFromHex(blogID)
+	if err != nil {
+		return usecases.ErrNotFound
+	}
+	filter := bson.M{"_id": objID}
+
+	// This single update modifies both fields atomically.
+	// It will either completely succeed or completely fail.
+	update := bson.M{
+		"$inc": bson.M{
+			"likes":    likesInc,
+			"dislikes": dislikesInc,
+		},
+	}
+
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	return err
+}
+
 // --- Mapper Functions ---
 
 // toBlogDomain converts a persistence model (BlogModel) to a domain entity (Blog).

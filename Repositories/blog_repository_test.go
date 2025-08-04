@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/suite"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -266,4 +267,108 @@ func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 		s.Equal(blogsToCreate[2].ID, blogs[0].ID)
 		s.Equal(blogsToCreate[3].ID, blogs[1].ID)
 	})
+}
+
+func (s *BlogRepositoryTestSuite) TestIncrementLikes() {
+	ctx := context.Background()
+	// Arrange: Create a blog with a known number of likes.
+	blog, _ := domain.NewBlog("Title", "Content", s.fixedAuthorID.Hex(), nil)
+	blog.Likes = 10
+	err := s.repo.Create(ctx, blog)
+	s.Require().NoError(err)
+
+	s.Run("Increment", func() {
+		// Act: Increment the likes count.
+		err := s.repo.IncrementLikes(ctx, blog.ID, 1)
+		s.NoError(err)
+
+		// Assert: Fetch directly from the DB to verify the change.
+		var updatedBlog BlogModel
+		objID, err := primitive.ObjectIDFromHex(blog.ID)
+		s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
+		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+		s.NoError(err)
+		s.Equal(int64(11), updatedBlog.Likes, "Likes count should be incremented by 1")
+	})
+
+	s.Run("Decrement", func() {
+		// Act: Decrement the likes count.
+		err := s.repo.IncrementLikes(ctx, blog.ID, -1)
+		s.NoError(err)
+
+		// Assert: The count should now be back to 10.
+		var updatedBlog BlogModel
+		objID, err := primitive.ObjectIDFromHex(blog.ID)
+		s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
+		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+		s.NoError(err)
+		s.Equal(int64(10), updatedBlog.Likes, "Likes count should be decremented back to 10")
+	})
+}
+
+func (s *BlogRepositoryTestSuite) TestIncrementDislikes() {
+	ctx := context.Background()
+	// Arrange: Create a blog with a known number of dislikes.
+	blog, _ := domain.NewBlog("Title", "Content", s.fixedAuthorID.Hex(), nil)
+	blog.Dislikes = 5
+	err := s.repo.Create(ctx, blog)
+	s.Require().NoError(err)
+
+	// Act: Increment the dislikes count.
+	err = s.repo.IncrementDislikes(ctx, blog.ID, 1)
+	s.NoError(err)
+
+	// Assert: Fetch directly from the DB to verify the change.
+	var updatedBlog BlogModel
+	objID, err := primitive.ObjectIDFromHex(blog.ID)
+	s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
+	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+	s.NoError(err)
+	s.Equal(int64(6), updatedBlog.Dislikes, "Dislikes count should be incremented")
+}
+
+func (s *BlogRepositoryTestSuite) TestIncrementViews() {
+	ctx := context.Background()
+	// Arrange: Create a blog with zero views.
+	blog, _ := domain.NewBlog("Title", "Content", s.fixedAuthorID.Hex(), nil)
+	err := s.repo.Create(ctx, blog)
+	s.Require().NoError(err)
+
+	// Act: Call the increment method twice.
+	err = s.repo.IncrementViews(ctx, blog.ID)
+	s.NoError(err)
+	err = s.repo.IncrementViews(ctx, blog.ID)
+	s.NoError(err)
+
+	// Assert: Verify the view count is 2.
+	var updatedBlog BlogModel
+	objID, err := primitive.ObjectIDFromHex(blog.ID)
+	s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
+	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+	s.NoError(err)
+	s.Equal(int64(2), updatedBlog.Views, "Views count should be 2 after two increments")
+}
+
+func (s *BlogRepositoryTestSuite) TestUpdateInteractionCounts() {
+	ctx := context.Background()
+	// Arrange: Create a blog with initial likes and dislikes.
+	blog, _ := domain.NewBlog("Title", "Content", s.fixedAuthorID.Hex(), nil)
+	blog.Likes = 20
+	blog.Dislikes = 10
+	err := s.repo.Create(ctx, blog)
+	s.Require().NoError(err)
+
+	// Act: Simulate a user switching from a dislike to a like.
+	// This means likes should go up by 1, and dislikes should go down by 1.
+	err = s.repo.UpdateInteractionCounts(ctx, blog.ID, 1, -1)
+	s.NoError(err)
+
+	// Assert: Check that both fields were updated atomically in the single operation.
+	var updatedBlog BlogModel
+	objID, err := primitive.ObjectIDFromHex(blog.ID)
+	s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
+	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+	s.NoError(err)
+	s.Equal(int64(21), updatedBlog.Likes, "Likes count should be 21")
+	s.Equal(int64(9), updatedBlog.Dislikes, "Dislikes count should be 9")
 }

@@ -123,6 +123,10 @@ type CreateBlogRequest struct {
 
 type UpdateBlogRequest map[string]interface{}
 
+type InteractBlogRequest struct {
+	Action domain.ActionType `json:"action" binding:"required,oneof=like dislike"`
+}
+
 type BlogResponse struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
@@ -131,6 +135,7 @@ type BlogResponse struct {
 	Tags      []string  `json:"tags"`
 	Views     int64     `json:"views"`
 	Likes     int64     `json:"likes"`
+	Dislikes  int64     `json:"dislikes"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -301,6 +306,30 @@ func (bc *BlogController) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+func (bc *BlogController) InteractWithBlog(c *gin.Context) {
+	// 1. Parse required parameters from the URL and context.
+	blogID := c.Param("id")
+	userID := c.GetString("userID") // Set by the authentication middleware.
+
+	// 2. Bind and validate the JSON request body.
+	var req InteractBlogRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid request: 'action' field is required and must be 'like' or 'dislike'"})
+		return
+	}
+
+	// 3. Call the single, consolidated usecase method with the parsed data.
+	err := bc.blogUsecase.InteractWithBlog(c.Request.Context(), blogID, userID, req.Action)
+	if err != nil {
+		// The usecase will return errors like ErrNotFound, which HandleError will correctly process.
+		HandleError(c, err)
+		return
+	}
+
+	// 4. On success, return a 200 OK status with no body.
+	c.Status(http.StatusOK)
+}
+
 // ===========================================
 // HELPERS
 // ===========================================
@@ -330,6 +359,7 @@ func toBlogResponse(b *domain.Blog) BlogResponse {
 		Tags:      b.Tags,
 		Views:     b.Views,
 		Likes:     b.Likes,
+		Dislikes:  b.Dislikes,
 		CreatedAt: b.CreatedAt,
 		UpdatedAt: b.UpdatedAt,
 	}

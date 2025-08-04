@@ -1,4 +1,3 @@
-// Use the _test package suffix for black-box testing.
 package usecases_test
 
 import (
@@ -6,6 +5,7 @@ import (
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -60,24 +60,74 @@ func (m *MockBlogRepository) Delete(ctx context.Context, id string) error {
 	return args.Error(0)
 }
 
+func (m *MockBlogRepository) IncrementLikes(ctx context.Context, blogID string, value int) error {
+	args := m.Called(ctx, blogID, value)
+	return args.Error(0)
+}
+
+func (m *MockBlogRepository) IncrementDislikes(ctx context.Context, blogID string, value int) error {
+	args := m.Called(ctx, blogID, value)
+	return args.Error(0)
+}
+
+func (m *MockBlogRepository) UpdateInteractionCounts(ctx context.Context, blogID string, likesInc, dislikesInc int) error {
+	args := m.Called(ctx, blogID, likesInc, dislikesInc)
+	return args.Error(0)
+}
+
+func (m *MockBlogRepository) IncrementViews(ctx context.Context, blogID string) error {
+	args := m.Called(ctx, blogID)
+	return args.Error(0)
+}
+
+type MockInteractionRepository struct {
+	mock.Mock
+}
+
+func (m *MockInteractionRepository) Get(ctx context.Context, userID, blogID string) (*domain.BlogInteraction, error) {
+	args := m.Called(ctx, userID, blogID)
+	var interaction *domain.BlogInteraction
+	if args.Get(0) != nil {
+		interaction = args.Get(0).(*domain.BlogInteraction)
+	}
+	return interaction, args.Error(1)
+}
+
+func (m *MockInteractionRepository) Create(ctx context.Context, interaction *domain.BlogInteraction) error {
+	args := m.Called(ctx, interaction)
+	return args.Error(0)
+}
+
+func (m *MockInteractionRepository) Update(ctx context.Context, interaction *domain.BlogInteraction) error {
+	args := m.Called(ctx, interaction)
+	return args.Error(0)
+}
+
+func (m *MockInteractionRepository) Delete(ctx context.Context, interactionID string) error {
+	args := m.Called(ctx, interactionID)
+	return args.Error(0)
+}
+
 // --- Test Suite Setup ---
 
 type BlogUsecaseTestSuite struct {
 	suite.Suite
-	mockBlogRepo *MockBlogRepository
-	mockUserRepo *MockUserRepository // Added mock for user repository
-	usecase      domain.IBlogUsecase
+	mockBlogRepo        *MockBlogRepository
+	mockInteractionRepo *MockInteractionRepository
+	mockUserRepo        *MockUserRepository // Added mock for user repository
+	usecase             domain.IBlogUsecase
 }
 
 // SetupTest runs before each test in the suite.
 // It creates fresh instances to ensure test isolation.
 func (s *BlogUsecaseTestSuite) SetupTest() {
 	s.mockBlogRepo = new(MockBlogRepository)
+	s.mockInteractionRepo = new(MockInteractionRepository)
 	s.mockUserRepo = new(MockUserRepository) // Initialize the new mock
 
 	// Use a short, fixed timeout for tests.
 	// The constructor call is updated to include the user repository.
-	s.usecase = usecases.NewBlogUsecase(s.mockBlogRepo, s.mockUserRepo, 2*time.Second)
+	s.usecase = usecases.NewBlogUsecase(s.mockBlogRepo, s.mockUserRepo, s.mockInteractionRepo, 2*time.Second)
 }
 
 // TestBlogUsecaseTestSuite is the entry point for running the suite.
@@ -177,7 +227,17 @@ func (s *BlogUsecaseTestSuite) TestGetByID() {
 		// Arrange
 		mockBlog, _ := domain.NewBlog("Title", "Content", "author", nil)
 		mockBlog.ID = "blog-1"
+		var wg sync.WaitGroup
+		wg.Add(1)
+
 		s.mockBlogRepo.On("GetByID", mock.Anything, "blog-1").Return(mockBlog, nil).Once()
+
+		s.mockBlogRepo.On("IncrementViews", mock.Anything, "blog-1").
+			Run(func(args mock.Arguments) {
+				wg.Done()
+			}).
+			Return(nil).
+			Once()
 
 		// Act
 		blog, err := s.usecase.GetByID(context.Background(), "blog-1")
@@ -185,11 +245,14 @@ func (s *BlogUsecaseTestSuite) TestGetByID() {
 		// Assert
 		s.NoError(err)
 		s.Equal(mockBlog, blog)
+		wg.Wait()
+
 		s.mockBlogRepo.AssertExpectations(s.T())
 	})
 
 	s.Run("Failure_NotFound", func() {
 		// Arrange
+		s.SetupTest()
 		s.mockBlogRepo.On("GetByID", mock.Anything, "not-found-id").Return(nil, usecases.ErrNotFound).Once()
 
 		// Act
@@ -199,7 +262,10 @@ func (s *BlogUsecaseTestSuite) TestGetByID() {
 		s.Error(err)
 		s.ErrorIs(err, usecases.ErrNotFound)
 		s.Nil(blog)
+
+		// Assert that GetByID was called.
 		s.mockBlogRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertNotCalled(s.T(), "IncrementViews", mock.Anything, mock.Anything)
 	})
 }
 
@@ -427,5 +493,93 @@ func (s *BlogUsecaseTestSuite) TestSearchAndFilter() {
 		s.Equal(int64(0), total)
 		s.mockUserRepo.AssertExpectations(s.T())
 		s.mockBlogRepo.AssertNotCalled(s.T(), "SearchAndFilter")
+	})
+}
+
+func (s *BlogUsecaseTestSuite) TestInteractWithBlog() {
+	ctx := context.Background()
+	blogID := "blog-123"
+	userID := "user-abc"
+
+	s.Run("Success - First time liking a blog", func() {
+		s.SetupTest() // Reset mocks for sub-test
+		action := domain.ActionTypeLike
+
+		// Arrange:
+		// 1. Mock Get to return "not found"
+		s.mockInteractionRepo.On("Get", mock.Anything, userID, blogID).Return(nil, usecases.ErrNotFound).Once()
+		// 2. Expect Create to be called for the new interaction
+		s.mockInteractionRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.BlogInteraction")).Return(nil).Once()
+		// 3. Expect IncrementLikes to be called
+		s.mockBlogRepo.On("IncrementLikes", mock.Anything, blogID, 1).Return(nil).Once()
+
+		// Act
+		err := s.usecase.InteractWithBlog(ctx, blogID, userID, action)
+
+		// Assert
+		s.NoError(err)
+		s.mockInteractionRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
+	})
+
+	s.Run("Success - Undoing a like", func() {
+		s.SetupTest()
+		action := domain.ActionTypeLike
+		// Arrange:
+		// 1. Mock Get to return an existing "like" interaction
+		existingInteraction := &domain.BlogInteraction{ID: "interaction-xyz", UserID: userID, BlogID: blogID, Action: domain.ActionTypeLike}
+		s.mockInteractionRepo.On("Get", mock.Anything, userID, blogID).Return(existingInteraction, nil).Once()
+		// 2. Expect Delete to be called to remove the interaction
+		s.mockInteractionRepo.On("Delete", mock.Anything, existingInteraction.ID).Return(nil).Once()
+		// 3. Expect IncrementLikes with a negative value
+		s.mockBlogRepo.On("IncrementLikes", mock.Anything, blogID, -1).Return(nil).Once()
+
+		// Act
+		err := s.usecase.InteractWithBlog(ctx, blogID, userID, action)
+
+		// Assert
+		s.NoError(err)
+		s.mockInteractionRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
+	})
+
+	s.Run("Success - Switching from a dislike to a like", func() {
+		s.SetupTest()
+		action := domain.ActionTypeLike
+		// Arrange:
+		// 1. Mock Get to return an existing "dislike" interaction
+		existingInteraction := &domain.BlogInteraction{ID: "interaction-xyz", UserID: userID, BlogID: blogID, Action: domain.ActionTypeDislike}
+		s.mockInteractionRepo.On("Get", mock.Anything, userID, blogID).Return(existingInteraction, nil).Once()
+		// 2. Expect Update to be called to change the action
+		s.mockInteractionRepo.On("Update", mock.Anything, mock.AnythingOfType("*domain.BlogInteraction")).Return(nil).Once()
+		// 3. Expect the atomic SwapCounts method to be called with the correct values
+		s.mockBlogRepo.On("UpdateInteractionCounts", mock.Anything, blogID, 1, -1).Return(nil).Once()
+
+		// Act
+		err := s.usecase.InteractWithBlog(ctx, blogID, userID, action)
+
+		// Assert
+		s.NoError(err)
+		s.mockInteractionRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
+	})
+
+	s.Run("Failure - Interaction repo Get fails", func() {
+		s.SetupTest()
+		expectedErr := errors.New("interaction db down")
+
+		// Arrange:
+		// 1. Mock Get to return an unexpected error
+		s.mockInteractionRepo.On("Get", mock.Anything, userID, blogID).Return(nil, expectedErr).Once()
+
+		// Act
+		err := s.usecase.InteractWithBlog(ctx, blogID, userID, domain.ActionTypeLike)
+
+		// Assert
+		s.Error(err)
+		s.ErrorIs(err, expectedErr)
+		// Ensure no other repository methods were called
+		s.mockBlogRepo.AssertNotCalled(s.T(), "IncrementLikes")
+		s.mockBlogRepo.AssertNotCalled(s.T(), "UpdateInteractionCounts")
 	})
 }
