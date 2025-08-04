@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -185,26 +186,85 @@ func (bc *BlogController) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, toBlogResponse(blog))
 }
 
-func (bc *BlogController) Fetch(c *gin.Context) {
+func (bc *BlogController) SearchAndFilter(c *gin.Context) {
+	options := domain.BlogSearchFilterOptions{
+		GlobalLogic: domain.GlobalLogicAND, // Default to AND logic for filers
+		TagLogic:    domain.GlobalLogicOR,  // Default to OR logic for tags
+		SortOrder:   domain.SortOrderDESC,  // Default to newest first
+	}
+
+	// 2. Parse all optional query parameters from the request.
+
+	// Pagination
 	page, err := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
-	if err != nil {
+	if err != nil || page < 1 {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'page' parameter"})
 		return
 	}
+	options.Page = page
 
 	limit, err := strconv.ParseInt(c.DefaultQuery("limit", "10"), 10, 64)
-	if err != nil {
+	if err != nil || limit < 1 {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'limit' parameter"})
 		return
 	}
+	options.Limit = limit
 
-	blogs, total, err := bc.blogUsecase.Fetch(c.Request.Context(), page, limit)
+	// Global Options
+	if strings.ToUpper(c.Query("logic")) == string(domain.GlobalLogicOR) {
+		options.GlobalLogic = domain.GlobalLogicOR
+	}
+
+	// Search criteria (using pointers for optional fields)
+	if title := c.Query("title"); title != "" {
+		options.Title = &title
+	}
+	if authorName := c.Query("authorName"); authorName != "" {
+		options.AuthorName = &authorName
+	}
+
+	// Tag filtering
+	if tagStr := c.Query("tags"); tagStr != "" {
+		options.Tags = strings.Split(tagStr, ",")
+	}
+	if strings.ToUpper(c.Query("tagLogic")) == string(domain.GlobalLogicAND) {
+		options.TagLogic = domain.GlobalLogicAND
+	}
+
+	// Date range filtering (using pointers)
+	// Example format: ?startDate=2023-10-27T10:00:00Z
+	if startDateStr := c.Query("startDate"); startDateStr != "" {
+		if t, err := time.Parse(time.RFC3339, startDateStr); err == nil {
+			options.StartDate = &t
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'startDate' format. Use RFC3339 (e.g., 2023-10-27T10:00:00Z)"})
+			return
+		}
+	}
+	if endDateStr := c.Query("endDate"); endDateStr != "" {
+		if t, err := time.Parse(time.RFC3339, endDateStr); err == nil {
+			options.EndDate = &t
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'endDate' format. Use RFC3339 (e.g., 2023-10-27T10:00:00Z)"})
+			return
+		}
+	}
+
+	// Sorting
+	options.SortBy = c.Query("sortBy") // e.g., "date", "popularity", "title"
+	if strings.ToUpper(c.Query("sortOrder")) == string(domain.SortOrderASC) {
+		options.SortOrder = domain.SortOrderASC
+	}
+
+	// 3. Call the usecase with the populated options struct.
+	blogs, total, err := bc.blogUsecase.SearchAndFilter(c.Request.Context(), options)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
 
-	c.JSON(http.StatusOK, toPaginatedBlogResponse(blogs, total, page, limit))
+	// 4. Return the paginated response.
+	c.JSON(http.StatusOK, toPaginatedBlogResponse(blogs, total, options.Page, options.Limit))
 }
 
 func (bc *BlogController) Update(c *gin.Context) {

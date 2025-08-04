@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // userMongo is the data model for the database.
@@ -118,4 +119,36 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 		return nil, err
 	}
 	return toUserDomain(mongoModel), nil
+}
+
+func (r *mongoUserRepository) FindUserIDsByName(ctx context.Context, authorName string) ([]string, error) {
+	// We want to find all users where the username matches, case-insensitively.
+	filter := bson.M{"username": bson.M{"$regex": authorName, "$options": "i"}}
+
+	// We only need the "_id" field, so we can use a projection to make the query more efficient.
+	// This tells MongoDB not to send back the entire user document over the network.
+	projection := options.Find().SetProjection(bson.M{"_id": 1})
+
+	cursor, err := r.collection.Find(ctx, filter, projection)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var ids []string
+	for cursor.Next(ctx) {
+		var result struct {
+			ID primitive.ObjectID `bson:"_id"`
+		}
+		if err := cursor.Decode(&result); err != nil {
+			return nil, err
+		}
+		ids = append(ids, result.ID.Hex())
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, err
+	}
+
+	return ids, nil
 }

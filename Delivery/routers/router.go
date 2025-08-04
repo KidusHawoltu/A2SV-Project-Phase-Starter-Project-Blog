@@ -36,7 +36,7 @@ func SetupRouter(
 	// ------------------------
 	publicBlogs := apiV1.Group("/blogs")
 	{
-		publicBlogs.GET("", blogController.Fetch)
+		publicBlogs.GET("", blogController.SearchAndFilter)
 		publicBlogs.GET("/:id", blogController.GetByID)
 	}
 

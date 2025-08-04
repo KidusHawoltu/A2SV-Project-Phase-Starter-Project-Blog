@@ -7,7 +7,7 @@ import (
 type IBlogUsecase interface {
 	Create(ctx context.Context, title, content string, authorID string, tags []string) (*Blog, error)
 
-	Fetch(ctx context.Context, page, limit int64) ([]*Blog, int64, error)
+	SearchAndFilter(ctx context.Context, options BlogSearchFilterOptions) ([]*Blog, int64, error)
 
 	GetByID(ctx context.Context, id string) (*Blog, error)
 
@@ -19,7 +19,7 @@ type IBlogUsecase interface {
 type IBlogRepository interface {
 	Create(ctx context.Context, blog *Blog) error
 
-	Fetch(ctx context.Context, page, limit int64) ([]*Blog, int64, error)
+	SearchAndFilter(ctx context.Context, options BlogSearchFilterOptions) ([]*Blog, int64, error)
 
 	GetByID(ctx context.Context, id string) (*Blog, error)
 

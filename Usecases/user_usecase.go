@@ -16,6 +16,7 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	GetByID(ctx context.Context, id string) (*domain.User, error)
+	FindUserIDsByName(ctx context.Context, authorName string) ([]string, error)
 }
 type UserUsecase interface {
 	Register(ctx context.Context, user *domain.User) error
@@ -42,13 +43,19 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
-	if err := user.Validate(); err != nil { return err }
+	if err := user.Validate(); err != nil {
+		return err
+	}
 
 	existingUser, _ := uc.userRepo.GetByEmail(ctx, user.Email)
-	if existingUser != nil { return domain.ErrEmailExists }
+	if existingUser != nil {
+		return domain.ErrEmailExists
+	}
 
 	hashedPassword, err := uc.passwordService.HashPassword(user.Password)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	user.Password = hashedPassword
 	user.Role = domain.RoleUser
 
@@ -60,7 +67,7 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 	defer cancel()
 
 	var user *domain.User
-	var err error 
+	var err error
 
 	if _, mailErr := mail.ParseAddress(identifier); mailErr == nil {
 		user, err = uc.userRepo.GetByEmail(ctx, identifier)
@@ -72,9 +79,9 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 		return "", err
 	}
 	if user == nil {
-		return  "", domain.ErrAuthenticationFailed //user not found
+		return "", domain.ErrAuthenticationFailed //user not found
 	}
-	
+
 	// Generate and return access token
 	return uc.jwtService.GenerateAccessToken(user.ID, user.Role)
 }

@@ -83,6 +83,108 @@ func (r *blogRepository) GetByID(ctx context.Context, id string) (*domain.Blog, 
 	return toBlogDomain(&model), nil
 }
 
+func (r *blogRepository) SearchAndFilter(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+	// This slice will hold all our individual filter conditions.
+	var conditions []bson.M
+
+	// --- Build individual conditions ---
+	if opts.Title != nil {
+		conditions = append(conditions, bson.M{"title": bson.M{"$regex": *opts.Title, "$options": "i"}})
+	}
+
+	if len(opts.AuthorIDs) > 0 {
+		// Convert hex string IDs from the domain layer to primitive.ObjectID for the DB query.
+		var authorObjIDs []primitive.ObjectID
+		for _, id := range opts.AuthorIDs {
+			if objID, err := primitive.ObjectIDFromHex(id); err == nil {
+				authorObjIDs = append(authorObjIDs, objID)
+			}
+		}
+		if len(authorObjIDs) > 0 {
+			conditions = append(conditions, bson.M{"author_id": bson.M{"$in": authorObjIDs}})
+		}
+	}
+
+	if len(opts.Tags) > 0 {
+		tagOperator := "$in"                        // Default to OR logic
+		if opts.TagLogic == domain.GlobalLogicAND { // Using GlobalLogic type here as per your struct
+			tagOperator = "$all"
+		}
+		conditions = append(conditions, bson.M{"tags": bson.M{tagOperator: opts.Tags}})
+	}
+
+	dateFilter := bson.M{}
+	if opts.StartDate != nil {
+		dateFilter["$gte"] = *opts.StartDate
+	}
+	if opts.EndDate != nil {
+		dateFilter["$lte"] = *opts.EndDate
+	}
+	if len(dateFilter) > 0 {
+		conditions = append(conditions, bson.M{"created_at": dateFilter})
+	}
+
+	// --- Construct the final filter ---
+	var filter bson.M
+	if len(conditions) == 0 {
+		filter = bson.M{} // Empty filter matches all
+	} else {
+		// Default to AND logic
+		operator := "$and"
+		if opts.GlobalLogic == domain.GlobalLogicOR {
+			operator = "$or"
+		}
+		filter = bson.M{operator: conditions}
+	}
+
+	// --- Configure find options for pagination and sorting ---
+	findOptions := options.Find()
+	findOptions.SetLimit(opts.Limit)
+	findOptions.SetSkip((opts.Page - 1) * opts.Limit)
+
+	sortValue := -1 // Default to DESC
+	if opts.SortOrder == domain.SortOrderASC {
+		sortValue = 1
+	}
+	var sortDoc bson.D
+	switch opts.SortBy {
+	case "popularity":
+		sortDoc = bson.D{{Key: "views", Value: -1}, {Key: "likes", Value: -1}}
+	case "title":
+		sortDoc = bson.D{{Key: "title", Value: sortValue}}
+	default: // "date" or any other value
+		sortDoc = bson.D{{Key: "created_at", Value: sortValue}}
+	}
+	findOptions.SetSort(sortDoc)
+
+	// --- Execute queries ---
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var blogs []*domain.Blog
+	for cursor.Next(ctx) {
+		var model BlogModel
+		if err := cursor.Decode(&model); err != nil {
+			return nil, 0, err
+		}
+		blogs = append(blogs, toBlogDomain(&model))
+	}
+
+	if err := cursor.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return blogs, total, nil
+}
+
 func (r *blogRepository) Fetch(ctx context.Context, page, limit int64) ([]*domain.Blog, int64, error) {
 	// First, get the total count of documents for pagination metadata.
 	total, err := r.collection.CountDocuments(ctx, bson.M{})

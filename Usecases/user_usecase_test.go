@@ -45,6 +45,11 @@ func (m *MockUserRepository) GetByID(ctx context.Context, id string) (*domain.Us
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 
+func (m *MockUserRepository) FindUserIDsByName(ctx context.Context, name string) ([]string, error) {
+	args := m.Called(ctx, name)
+	return args.Get(0).([]string), args.Error(1)
+}
+
 type MockPasswordService struct {
 	mock.Mock
 }

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"context"
 
@@ -139,8 +140,8 @@ func (m *MockBlogUsecase) Create(ctx context.Context, title, content, authorID s
 	return blog, args.Error(1)
 }
 
-func (m *MockBlogUsecase) Fetch(ctx context.Context, page, limit int64) ([]*domain.Blog, int64, error) {
-	args := m.Called(ctx, page, limit)
+func (m *MockBlogUsecase) SearchAndFilter(ctx context.Context, options domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+	args := m.Called(ctx, options)
 	var blogs []*domain.Blog
 	if args.Get(0) != nil {
 		blogs = args.Get(0).([]*domain.Blog)
@@ -398,53 +399,100 @@ func (s *BlogControllerTestSuite) TestUpdate() {
 	})
 }
 
-// Add this test function as well
-func (s *BlogControllerTestSuite) TestFetch() {
-	s.Run("Success", func() {
+func (s *BlogControllerTestSuite) TestSearchAndFilter() {
+	s.Run("Success_DefaultOptions", func() {
+		// This test verifies that a simple request with no parameters
+		// calls the usecase with the correct default options.
 		// Arrange
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.GET("/blogs", controller.Fetch)
+		router.GET("/blogs", controller.SearchAndFilter)
+
+		// Define the exact options struct we expect the controller to build
+		expectedOptions := domain.BlogSearchFilterOptions{
+			Page:        1,
+			Limit:       10,
+			GlobalLogic: domain.GlobalLogicAND, // Default
+			TagLogic:    domain.GlobalLogicOR,  // Default
+			SortOrder:   domain.SortOrderDESC,  // Default
+		}
 
 		// The mock data the usecase will return
-		mockBlogs := []*domain.Blog{
-			{ID: "1", Title: "Blog 1"},
-			{ID: "2", Title: "Blog 2"},
-		}
-		totalCount := int64(10)
+		mockBlogs := []*domain.Blog{{ID: "1", Title: "Blog 1"}}
+		totalCount := int64(1)
 
-		// Set the mock expectation
-		mockUsecase.On("Fetch", mock.Anything, int64(1), int64(5)).Return(mockBlogs, totalCount, nil).Once()
-
-		// Create the HTTP request
-		req := httptest.NewRequest(http.MethodGet, "/blogs?page=1&limit=5", nil)
-		w := httptest.NewRecorder()
+		// Set the mock expectation: The usecase must be called with our expectedOptions
+		mockUsecase.On("SearchAndFilter", mock.Anything, expectedOptions).Return(mockBlogs, totalCount, nil).Once()
 
 		// Act
+		req := httptest.NewRequest(http.MethodGet, "/blogs", nil)
+		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
 		// Assert
 		s.Equal(http.StatusOK, w.Code)
-
 		var resp controllers.PaginatedBlogResponse
-		err := json.Unmarshal(w.Body.Bytes(), &resp)
-		s.NoError(err, "Should successfully unmarshal the response")
-		s.Len(resp.Data, 2, "Response should contain 2 blogs")
-		s.Equal(totalCount, resp.Pagination.Total, "Pagination total should match")
-		s.Equal(int64(1), resp.Pagination.Page, "Pagination page should match")
+		json.Unmarshal(w.Body.Bytes(), &resp)
+		s.Len(resp.Data, 1)
+		s.Equal(totalCount, resp.Pagination.Total)
 		mockUsecase.AssertExpectations(s.T())
 	})
 
-	s.Run("Failure_InvalidQueryParam", func() {
+	s.Run("Success_WithAllQueryParameters", func() {
+		// This test verifies that the controller correctly parses all possible
+		// query parameters and constructs the options struct.
 		// Arrange
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.GET("/blogs", controller.Fetch)
+		router.GET("/blogs", controller.SearchAndFilter)
 
-		// Create a request with a non-integer page number
-		req := httptest.NewRequest(http.MethodGet, "/blogs?page=abc", nil)
+		// Prepare pointer values for our expected struct
+		title := "Test"
+		authorName := "John"
+		startDate, _ := time.Parse(time.RFC3339, "2023-01-01T00:00:00Z")
+
+		// Define the exact, fully-populated options struct we expect
+		expectedOptions := domain.BlogSearchFilterOptions{
+			Page:        2,
+			Limit:       20,
+			Title:       &title,
+			AuthorName:  &authorName,
+			Tags:        []string{"go", "api"},
+			TagLogic:    domain.GlobalLogicAND,
+			GlobalLogic: domain.GlobalLogicOR,
+			StartDate:   &startDate,
+			SortBy:      "title",
+			SortOrder:   domain.SortOrderASC,
+		}
+
+		mockUsecase.On("SearchAndFilter", mock.Anything, expectedOptions).Return([]*domain.Blog{}, int64(0), nil).Once()
+
+		// Create a URL with all the corresponding query parameters
+		url := "/blogs?page=2&limit=20&title=Test&authorName=John&tags=go,api&tagLogic=AND&logic=OR&startDate=2023-01-01T00:00:00Z&sortBy=title&sortOrder=ASC"
+
+		// Act
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		// Assert
+		s.Equal(http.StatusOK, w.Code)
+		mockUsecase.AssertExpectations(s.T()) // This is the most important assertion
+	})
+
+	s.Run("Failure_InvalidDateParameter", func() {
+		// This test ensures that if a parameter is badly formatted,
+		// the controller fails early and doesn't call the usecase.
+		// Arrange
+		mockUsecase := new(MockBlogUsecase)
+		controller := controllers.NewBlogController(mockUsecase)
+		router := gin.New()
+		router.GET("/blogs", controller.SearchAndFilter)
+
+		// Create a request with a non-RFC3339 date
+		req := httptest.NewRequest(http.MethodGet, "/blogs?startDate=2023-01-01", nil)
 		w := httptest.NewRecorder()
 
 		// Act
@@ -452,7 +500,7 @@ func (s *BlogControllerTestSuite) TestFetch() {
 
 		// Assert
 		s.Equal(http.StatusBadRequest, w.Code)
-		// Usecase should not have been called if query parsing fails
-		mockUsecase.AssertNotCalled(s.T(), "Fetch", mock.Anything, mock.Anything, mock.Anything)
+		// Usecase should NOT have been called
+		mockUsecase.AssertNotCalled(s.T(), "SearchAndFilter", mock.Anything, mock.Anything)
 	})
 }

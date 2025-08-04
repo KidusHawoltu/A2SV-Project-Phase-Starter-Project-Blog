@@ -32,8 +32,8 @@ func (m *MockBlogRepository) Create(ctx context.Context, blog *domain.Blog) erro
 	return args.Error(0)
 }
 
-func (m *MockBlogRepository) Fetch(ctx context.Context, page, limit int64) ([]*domain.Blog, int64, error) {
-	args := m.Called(ctx, page, limit)
+func (m *MockBlogRepository) SearchAndFilter(ctx context.Context, options domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+	args := m.Called(ctx, options)
 	var blogs []*domain.Blog
 	if args.Get(0) != nil {
 		blogs = args.Get(0).([]*domain.Blog)
@@ -310,5 +310,122 @@ func (s *BlogUsecaseTestSuite) TestUpdate() {
 		s.ErrorIs(err, domain.ErrValidation)
 		s.Nil(updatedBlog)
 		s.mockBlogRepo.AssertExpectations(s.T())
+	})
+}
+
+func (s *BlogUsecaseTestSuite) TestSearchAndFilter() {
+	authorName := "John Doe"
+	authorIDs := []string{"user-123", "user-456"}
+
+	s.Run("Success_WithoutAuthorName", func() {
+		// This tests the simple case where no author name is provided,
+		// and the call is passed directly to the blog repository.
+		// Arrange
+		opts := domain.BlogSearchFilterOptions{Page: 1, Limit: 10}
+		s.mockBlogRepo.On("SearchAndFilter", mock.Anything, opts).Return([]*domain.Blog{}, int64(0), nil).Once()
+
+		// Act
+		blogs, total, err := s.usecase.SearchAndFilter(context.Background(), opts)
+
+		// Assert
+		s.NoError(err)
+		s.NotNil(blogs)
+		s.Equal(int64(0), total)
+		s.mockUserRepo.AssertNotCalled(s.T(), "FindUserIDsByName") // Crucially, userRepo is not called
+		s.mockBlogRepo.AssertExpectations(s.T())
+	})
+
+	s.Run("Success_WithAuthorName", func() {
+		// This tests the main orchestration path: converting an author's name to IDs.
+		// Arrange
+		opts := domain.BlogSearchFilterOptions{
+			AuthorName: &authorName,
+			Page:       1,
+			Limit:      10,
+		}
+
+		// Mock the user repo to successfully find IDs
+		s.mockUserRepo.On("FindUserIDsByName", mock.Anything, authorName).Return(authorIDs, nil).Once()
+
+		// The usecase should modify the options struct before passing it to the blog repo
+		expectedRepoOpts := opts
+		expectedRepoOpts.AuthorIDs = authorIDs
+		s.mockBlogRepo.On("SearchAndFilter", mock.Anything, expectedRepoOpts).Return([]*domain.Blog{}, int64(0), nil).Once()
+
+		// Act
+		_, _, err := s.usecase.SearchAndFilter(context.Background(), opts)
+
+		// Assert
+		s.NoError(err)
+		s.mockUserRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T())
+	})
+
+	s.Run("Success_ShortCircuit_WhenAuthorNotFound_AND_GlobalLogicIsAND", func() {
+		// This tests the critical optimization path for AND logic.
+		// Arrange
+		opts := domain.BlogSearchFilterOptions{
+			AuthorName:  &authorName,
+			GlobalLogic: domain.GlobalLogicAND, // Explicitly set AND logic
+		}
+
+		// Mock the user repo to find NO users
+		s.mockUserRepo.On("FindUserIDsByName", mock.Anything, authorName).Return([]string{}, nil).Once()
+
+		// Act
+		blogs, total, err := s.usecase.SearchAndFilter(context.Background(), opts)
+
+		// Assert
+		s.NoError(err)
+		s.Empty(blogs) // Should return an empty slice
+		s.Equal(int64(0), total)
+		s.mockUserRepo.AssertExpectations(s.T())
+		// The blog repo should NEVER be called in this case.
+		s.mockBlogRepo.AssertNotCalled(s.T(), "SearchAndFilter")
+	})
+
+	s.Run("Success_NoShortCircuit_WhenAuthorNotFound_AND_GlobalLogicIsOR", func() {
+		// This tests the crucial edge case where we MUST continue with an OR query.
+		// Arrange
+		opts := domain.BlogSearchFilterOptions{
+			AuthorName:  &authorName,
+			GlobalLogic: domain.GlobalLogicOR, // Set OR logic
+		}
+
+		// Mock the user repo to find NO users
+		s.mockUserRepo.On("FindUserIDsByName", mock.Anything, authorName).Return([]string{}, nil).Once()
+
+		// The usecase should add an EMPTY slice of AuthorIDs to the options
+		expectedRepoOpts := opts
+		expectedRepoOpts.AuthorIDs = []string{}
+		expectedRepoOpts.Page = 1
+		expectedRepoOpts.Limit = 10
+		s.mockBlogRepo.On("SearchAndFilter", mock.Anything, expectedRepoOpts).Return([]*domain.Blog{}, int64(0), nil).Once()
+
+		// Act
+		_, _, err := s.usecase.SearchAndFilter(context.Background(), opts)
+
+		// Assert
+		s.NoError(err)
+		s.mockUserRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertExpectations(s.T()) // The blog repo MUST be called
+	})
+
+	s.Run("Failure_WhenUserRepoFails", func() {
+		// Arrange
+		opts := domain.BlogSearchFilterOptions{AuthorName: &authorName}
+		expectedErr := errors.New("user db down")
+		s.mockUserRepo.On("FindUserIDsByName", mock.Anything, authorName).Return([]string{}, expectedErr).Once()
+
+		// Act
+		blogs, total, err := s.usecase.SearchAndFilter(context.Background(), opts)
+
+		// Assert
+		s.Error(err)
+		s.ErrorIs(err, usecases.ErrInternal) // The usecase should wrap the specific error
+		s.Nil(blogs)
+		s.Equal(int64(0), total)
+		s.mockUserRepo.AssertExpectations(s.T())
+		s.mockBlogRepo.AssertNotCalled(s.T(), "SearchAndFilter")
 	})
 }

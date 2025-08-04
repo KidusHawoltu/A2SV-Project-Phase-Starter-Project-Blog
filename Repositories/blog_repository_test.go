@@ -138,37 +138,132 @@ func (s *BlogRepositoryTestSuite) TestDelete() {
 	s.Nil(foundBlog)
 }
 
-// TestFetch asserts that pagination and sorting work correctly.
-func (s *BlogRepositoryTestSuite) TestFetch() {
+func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 	ctx := context.Background()
-	// Arrange: Create multiple blogs with different timestamps to test sorting
-	blog1, _ := domain.NewBlog("Oldest Post", "Content 1", s.fixedAuthorID.Hex(), nil)
-	time.Sleep(10 * time.Millisecond) // Ensure timestamps are distinct
-	blog2, _ := domain.NewBlog("Middle Post", "Content 2", s.fixedAuthorID.Hex(), nil)
-	time.Sleep(10 * time.Millisecond)
-	blog3, _ := domain.NewBlog("Newest Post", "Content 3", s.fixedAuthorID.Hex(), nil)
+	author1 := primitive.NewObjectID()
+	author2 := primitive.NewObjectID()
 
-	s.Require().NoError(s.repo.Create(ctx, blog1))
-	s.Require().NoError(s.repo.Create(ctx, blog2))
-	s.Require().NoError(s.repo.Create(ctx, blog3))
+	// Arrange: Create a diverse set of blogs to test against.
+	blogsToCreate := []*domain.Blog{
+		{Title: "Golang Basics", AuthorID: author1.Hex(), Tags: []string{"go", "beginner"}, CreatedAt: time.Now().Add(-5 * 24 * time.Hour), Views: 100, Likes: 10},     // 0
+		{Title: "Advanced Golang", AuthorID: author1.Hex(), Tags: []string{"go", "advanced"}, CreatedAt: time.Now().Add(-4 * 24 * time.Hour), Views: 200, Likes: 20},   // 1
+		{Title: "Intro to Docker", AuthorID: author2.Hex(), Tags: []string{"docker", "devops"}, CreatedAt: time.Now().Add(-3 * 24 * time.Hour), Views: 150, Likes: 15}, // 2
+		{Title: "Docker with Go", AuthorID: author2.Hex(), Tags: []string{"docker", "go"}, CreatedAt: time.Now().Add(-2 * 24 * time.Hour), Views: 300, Likes: 5},       // 3
+		{Title: "REST APIs", AuthorID: author1.Hex(), Tags: []string{"api", "backend"}, CreatedAt: time.Now().Add(-1 * 24 * time.Hour), Views: 50, Likes: 30},          // 4
+	}
 
-	// Act: Fetch the first page (limit 2)
-	blogs, total, err := s.repo.Fetch(ctx, 1, 2)
+	for _, blog := range blogsToCreate {
+		err := s.repo.Create(ctx, blog)
+		s.Require().NoError(err)
+	}
 
-	// Assert: First page
-	s.NoError(err)
-	s.Equal(int64(3), total, "Total count should be 3")
-	s.Len(blogs, 2, "Should fetch 2 blogs on the first page")
-	// Verify sorting (most recent first)
-	s.Equal("Newest Post", blogs[0].Title)
-	s.Equal("Middle Post", blogs[1].Title)
+	// Helper to extract IDs for easier comparison
+	getBlogIDs := func(blogs []*domain.Blog) []string {
+		ids := make([]string, len(blogs))
+		for i, b := range blogs {
+			ids[i] = b.ID
+		}
+		return ids
+	}
 
-	// Act: Fetch the second page
-	blogs, total, err = s.repo.Fetch(ctx, 2, 2)
+	s.Run("No Filters", func() {
+		opts := domain.BlogSearchFilterOptions{Page: 1, Limit: 10}
+		blogs, total, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Len(blogs, 5)
+		s.Equal(int64(5), total)
+	})
 
-	// Assert: Second page
-	s.NoError(err)
-	s.Equal(int64(3), total, "Total count should still be 3")
-	s.Len(blogs, 1, "Should fetch 1 blog on the second page")
-	s.Equal("Oldest Post", blogs[0].Title)
+	s.Run("Filter by Title", func() {
+		title := "golang"
+		opts := domain.BlogSearchFilterOptions{Title: &title, Page: 1, Limit: 10}
+		blogs, total, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Len(blogs, 2)
+		s.Equal(int64(2), total)
+		s.ElementsMatch([]string{blogsToCreate[0].ID, blogsToCreate[1].ID}, getBlogIDs(blogs))
+	})
+
+	s.Run("Filter by AuthorIDs", func() {
+		opts := domain.BlogSearchFilterOptions{AuthorIDs: []string{author2.Hex()}, Page: 1, Limit: 10}
+		blogs, total, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Len(blogs, 2)
+		s.Equal(int64(2), total)
+		s.ElementsMatch([]string{blogsToCreate[2].ID, blogsToCreate[3].ID}, getBlogIDs(blogs))
+	})
+
+	s.Run("Filter by Tags with OR logic", func() {
+		opts := domain.BlogSearchFilterOptions{Tags: []string{"advanced", "api"}, TagLogic: domain.GlobalLogicOR, Page: 1, Limit: 10}
+		blogs, _, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Len(blogs, 2)
+		s.ElementsMatch([]string{blogsToCreate[1].ID, blogsToCreate[4].ID}, getBlogIDs(blogs))
+	})
+
+	s.Run("Filter by Tags with AND logic", func() {
+		opts := domain.BlogSearchFilterOptions{Tags: []string{"docker", "go"}, TagLogic: domain.GlobalLogicAND, Page: 1, Limit: 10}
+		blogs, _, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Len(blogs, 1)
+		s.Equal(blogsToCreate[3].ID, blogs[0].ID)
+	})
+
+	s.Run("Filter by Date Range", func() {
+		startDate := time.Now().Add(-3 * 24 * time.Hour).Add(-time.Hour) // 3 days and 1 hour ago
+		endDate := time.Now().Add(-1 * 24 * time.Hour).Add(time.Hour)    // 1 day ago plus 1 hour
+		opts := domain.BlogSearchFilterOptions{StartDate: &startDate, EndDate: &endDate, Page: 1, Limit: 10}
+		blogs, _, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Len(blogs, 3)
+		s.ElementsMatch([]string{blogsToCreate[2].ID, blogsToCreate[3].ID, blogsToCreate[4].ID}, getBlogIDs(blogs))
+	})
+
+	s.Run("Global AND Logic", func() {
+		title := "Docker"
+		opts := domain.BlogSearchFilterOptions{
+			GlobalLogic: domain.GlobalLogicAND,
+			Title:       &title,
+			AuthorIDs:   []string{author2.Hex()},
+			Page:        1, Limit: 10,
+		}
+		blogs, _, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Len(blogs, 2) // "Intro to Docker" and "Docker with Go"
+	})
+
+	s.Run("Global OR Logic", func() {
+		title := "APIs"
+		opts := domain.BlogSearchFilterOptions{
+			GlobalLogic: domain.GlobalLogicOR,
+			Title:       &title,
+			AuthorIDs:   []string{author2.Hex()}, // Author2 has 2 blogs
+			Page:        1, Limit: 10,
+		}
+		blogs, _, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Len(blogs, 3) // Blog with title "REST APIs" + author2's two blogs
+		s.ElementsMatch([]string{blogsToCreate[2].ID, blogsToCreate[3].ID, blogsToCreate[4].ID}, getBlogIDs(blogs))
+	})
+
+	s.Run("Sort by Popularity", func() {
+		opts := domain.BlogSearchFilterOptions{SortBy: "popularity", Page: 1, Limit: 10}
+		blogs, _, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		// Expected order by views desc: 300, 200, 150, 100, 50
+		expectedOrder := []string{blogsToCreate[3].ID, blogsToCreate[1].ID, blogsToCreate[2].ID, blogsToCreate[0].ID, blogsToCreate[4].ID}
+		s.Equal(expectedOrder, getBlogIDs(blogs))
+	})
+
+	s.Run("Pagination", func() {
+		// Sort by date ascending to get a predictable order
+		opts := domain.BlogSearchFilterOptions{SortBy: "date", SortOrder: domain.SortOrderASC, Page: 2, Limit: 2}
+		blogs, total, err := s.repo.SearchAndFilter(ctx, opts)
+		s.NoError(err)
+		s.Equal(int64(5), total)
+		s.Len(blogs, 2)
+		// Page 1 would be [0, 1]. Page 2 should be [2, 3].
+		s.Equal(blogsToCreate[2].ID, blogs[0].ID)
+		s.Equal(blogsToCreate[3].ID, blogs[1].ID)
+	})
 }

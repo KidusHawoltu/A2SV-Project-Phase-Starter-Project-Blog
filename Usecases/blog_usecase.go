@@ -67,20 +67,40 @@ func (bu *blogUsecase) Create(ctx context.Context, title, content, authorID stri
 	return newBlog, nil
 }
 
-// Fetch retrieves a paginated list of blog posts.
-func (bu *blogUsecase) Fetch(ctx context.Context, page, limit int64) ([]*domain.Blog, int64, error) {
+func (bu *blogUsecase) SearchAndFilter(ctx context.Context, options domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+	// 1. Set up a context with a timeout for the entire operation.
 	ctx, cancel := context.WithTimeout(ctx, bu.contextTimeout)
 	defer cancel()
 
-	// Enforce application-wide pagination limits.
-	if limit <= 0 || limit > 100 {
-		limit = 10 // Default limit
-	}
-	if page <= 0 {
-		page = 1
+	if options.AuthorName != nil && *options.AuthorName != "" {
+		// Find all user IDs that match the provided name.
+		userIDs, err := bu.userRepo.FindUserIDsByName(ctx, *options.AuthorName)
+		if err != nil {
+			// If there's a problem querying users, it's an internal error.
+			return nil, 0, ErrInternal
+		}
+
+		// If no users are found with that name and the logic is AND, no blogs can possibly match
+		//  We can short-circuit here and return an empty result
+		if len(userIDs) == 0 && options.GlobalLogic == domain.GlobalLogicAND {
+			return []*domain.Blog{}, 0, nil
+		}
+
+		// Add the found IDs to the options struct. The repository will use this.
+		options.AuthorIDs = userIDs
 	}
 
-	return bu.blogRepo.Fetch(ctx, page, limit)
+	if options.Limit <= 0 {
+		options.Limit = 10
+	}
+	if options.Limit > 100 {
+		options.Limit = 100 // Enforce a max limit
+	}
+	if options.Page <= 0 {
+		options.Page = 1
+	}
+
+	return bu.blogRepo.SearchAndFilter(ctx, options)
 }
 
 // GetByID retrieves a single blog post.
