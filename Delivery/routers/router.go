@@ -11,6 +11,7 @@ import (
 func SetupRouter(
 	userController *controllers.UserController,
 	blogController *controllers.BlogController,
+	aiController *controllers.AIController,
 	jwtService infrastructure.JWTService,
 ) *gin.Engine {
 
@@ -38,15 +39,24 @@ func SetupRouter(
 	{
 		publicBlogs.GET("", blogController.SearchAndFilter)
 		publicBlogs.GET("/:id", blogController.GetByID)
+
+		protectedBlogs := publicBlogs.Group("")
+		protectedBlogs.Use(infrastructure.AuthMiddleware(jwtService))
+		{
+			protectedBlogs.POST("", blogController.Create)
+			protectedBlogs.PUT("/:id", blogController.Update)
+			protectedBlogs.DELETE("/:id", blogController.Delete)
+			protectedBlogs.POST("/:id/interact", blogController.InteractWithBlog)
+		}
 	}
 
-	protectedBlogs := publicBlogs.Group("")
-	protectedBlogs.Use(infrastructure.AuthMiddleware(jwtService))
+	// ------------------------
+	// AI Routes (Protected)
+	// ------------------------
+	ai := apiV1.Group("/ai")
+	ai.Use(infrastructure.AuthMiddleware(jwtService))
 	{
-		protectedBlogs.POST("", blogController.Create)
-		protectedBlogs.PUT("/:id", blogController.Update)
-		protectedBlogs.DELETE("/:id", blogController.Delete)
-		protectedBlogs.POST("/:id/interact", blogController.InteractWithBlog)
+		ai.POST("/suggest", aiController.Suggest)
 	}
 
 	return router

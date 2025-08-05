@@ -44,3 +44,12 @@ type IInteractionRepository interface {
 
 	Delete(ctx context.Context, interactionID string) error
 }
+
+type IAIService interface {
+	GenerateCompletion(ctx context.Context, prompt string) (string, error)
+}
+
+type IAIUsecase interface {
+	GenerateBlogIdeas(ctx context.Context, keywords []string) ([]string, error)
+	RefineBlogPost(ctx context.Context, content string) (string, error)
+}

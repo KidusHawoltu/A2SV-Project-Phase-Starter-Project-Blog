@@ -1,7 +1,7 @@
 package domain_test
 
 import (
-	domain "A2SV_Starter_Project_Blog/Domain"
+	. "A2SV_Starter_Project_Blog/Domain"
 	"testing"
 	"time"
 
@@ -27,7 +27,7 @@ func (s *BlogDomainTestSuite) TestNewBlog_Success() {
 	tags := []string{"go", "clean-architecture", "testing"}
 
 	// Act: Call the factory and check for an error.
-	blog, err := domain.NewBlog(title, content, authorID, tags)
+	blog, err := NewBlog(title, content, authorID, tags)
 
 	// Assert
 	s.NoError(err, "Creating a blog with valid data should not produce an error")
@@ -94,11 +94,11 @@ func (s *BlogDomainTestSuite) TestNewBlog_ValidationFailure() {
 
 	for _, tc := range testCases {
 		s.Run(tc.name, func() {
-			blog, err := domain.NewBlog(tc.title, tc.content, tc.authorID, nil)
+			blog, err := NewBlog(tc.title, tc.content, tc.authorID, nil)
 
 			// Assert: Check that the correct error is returned and the object is nil.
 			s.Error(err, "Should return an error for invalid input")
-			s.ErrorIs(err, domain.ErrValidation, "The error should be a domain validation error")
+			s.ErrorIs(err, ErrValidation, "The error should be a domain validation error")
 			s.Nil(blog, "The blog object should be nil on validation failure")
 		})
 	}
@@ -107,7 +107,7 @@ func (s *BlogDomainTestSuite) TestNewBlog_ValidationFailure() {
 // TestNewBlog_ValidEdgeCases tests valid but non-standard inputs.
 func (s *BlogDomainTestSuite) TestNewBlog_ValidEdgeCases() {
 	s.Run("WithNilTags", func() {
-		blog, err := domain.NewBlog("Title", "Content", "author-id", nil)
+		blog, err := NewBlog("Title", "Content", "author-id", nil)
 
 		s.NoError(err, "Nil tags are valid and should not cause an error")
 		s.NotNil(blog)
@@ -115,7 +115,7 @@ func (s *BlogDomainTestSuite) TestNewBlog_ValidEdgeCases() {
 	})
 
 	s.Run("WithEmptyTagsSlice", func() {
-		blog, err := domain.NewBlog("Title", "Content", "author-id", []string{})
+		blog, err := NewBlog("Title", "Content", "author-id", []string{})
 
 		s.NoError(err, "An empty tags slice is valid and should not cause an error")
 		s.NotNil(blog)
