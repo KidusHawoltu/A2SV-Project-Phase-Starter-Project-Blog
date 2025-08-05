@@ -46,6 +46,14 @@ func main() {
 	if serverPort == "" {
 		serverPort = "8080"
 	}
+	geminiModel := os.Getenv("GEMINI_MODEL")
+	if geminiModel == "" {
+		geminiModel = "gemini-2.5-pro"
+	}
+	geminiApiKey := os.Getenv("GEMINI_API_KEY")
+	if geminiApiKey == "" {
+		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
+	}
 	usecaseTimeout := 5 * time.Second
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -70,21 +78,28 @@ func main() {
 	// --- Infrastructure Setup ---
 	passwordService := infrastructure.NewPasswordService()
 	jwtService := infrastructure.NewJWTService(jwtSecret, jwtIssuer, jwtTTL)
+	aiService, err := infrastructure.NewGeminiAIService(geminiApiKey, geminiModel)
+	if err != nil {
+		log.Printf("ERROR: Failed to initialize AI service: %v. AI features will be unavailable.", err)
+	}
 
 	// --- Repositories ---
 	userRepo := repositories.NewMongoUserRepository(db, "users")
 	blogRepo := repositories.NewBlogRepository(db.Collection("blogs"))
+	interactionRepo := repositories.NewInteractionRepository(db.Collection("interactions"))
 
 	// --- Usecases ---
 	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, usecaseTimeout)
-	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, usecaseTimeout)
+	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
+	aiUsecase := usecases.NewAIUsecase(aiService)
 
 	// --- Controllers ---
 	userController := controllers.NewUserController(userUsecase)
 	blogController := controllers.NewBlogController(blogUsecase)
+	aiController := controllers.NewAIController(aiUsecase)
 
 	// --- Setup Router ---
-	router := routers.SetupRouter(userController, blogController, jwtService)
+	router := routers.SetupRouter(userController, blogController, aiController, jwtService)
 
 	log.Printf("Server starting on port %s...", serverPort)
 	if err := router.Run(":" + serverPort); err != nil {
