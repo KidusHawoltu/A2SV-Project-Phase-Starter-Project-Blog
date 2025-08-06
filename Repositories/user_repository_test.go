@@ -133,3 +133,74 @@ func (s *UserRepositorySuite) TestGetByID() {
 		s.Nil(foundUser)
 	})
 }
+
+func (s *UserRepositorySuite) TestFindUserIDsByName() {
+	// Arrange: Insert a variety of users to test different search scenarios.
+	usersToCreate := []*domain.User{
+		{Username: "John Doe", Email: "john.doe@test.com"},
+		{Username: "Jane Doe", Email: "jane.doe@test.com"},
+		{Username: "johnny", Email: "johnny@test.com"},
+		{Username: "john doe", Email: "johndoe.lc@test.com"}, // Lowercase version for case-insensitivity test
+	}
+
+	userIDs := make(map[string]string)
+	for _, user := range usersToCreate {
+		err := s.repository.Create(context.Background(), user)
+		s.Require().NoError(err)
+
+		// Fetch the created user to get their actual ID
+		createdUser, err := s.repository.GetByEmail(context.Background(), user.Email)
+		s.Require().NoError(err)
+		userIDs[user.Username] = createdUser.ID
+	}
+
+	s.Run("Success - Single Exact Match", func() {
+		// Act: Search for a unique username
+		ids, err := s.repository.FindUserIDsByName(context.Background(), "Jane Doe")
+
+		// Assert
+		s.Require().NoError(err)
+		s.Require().Len(ids, 1, "Should find exactly one user")
+		s.Equal(userIDs["Jane Doe"], ids[0])
+	})
+
+	s.Run("Success - Multiple Case-Insensitive Matches", func() {
+		// Act: Search for a name that matches multiple users due to case-insensitivity
+		ids, err := s.repository.FindUserIDsByName(context.Background(), "john doe")
+
+		// Assert
+		s.Require().NoError(err)
+		s.Require().Len(ids, 2, "Should find two users: 'John Doe' and 'john doe'")
+		// Use ElementsMatch because the order of results from the DB is not guaranteed
+		s.ElementsMatch([]string{userIDs["John Doe"], userIDs["john doe"]}, ids)
+	})
+
+	s.Run("Success - Partial Match", func() {
+		// Act: Search for a partial name that should match multiple users
+		ids, err := s.repository.FindUserIDsByName(context.Background(), "John")
+
+		// Assert
+		s.Require().NoError(err)
+		s.Require().Len(ids, 3, "Should find 'John Doe', 'johnny', and 'john doe'")
+		expectedIDs := []string{userIDs["John Doe"], userIDs["johnny"], userIDs["john doe"]}
+		s.ElementsMatch(expectedIDs, ids)
+	})
+
+	s.Run("Success - No Matches Found", func() {
+		// Act: Search for a name that doesn't exist
+		ids, err := s.repository.FindUserIDsByName(context.Background(), "NonExistentUser")
+
+		// Assert
+		s.Require().NoError(err)
+		s.Empty(ids, "Should return an empty slice for no matches")
+	})
+
+	s.Run("Success - Empty Search String Matches All", func() {
+		// Act: An empty regex should match all documents
+		ids, err := s.repository.FindUserIDsByName(context.Background(), "")
+
+		// Assert
+		s.Require().NoError(err)
+		s.Len(ids, 4, "An empty search should return all users")
+	})
+}

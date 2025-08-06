@@ -13,17 +13,26 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const (
+	LikeWeight    = 10.0
+	DislikeWeight = -10.0
+	ViewWeight    = 1.0
+	// Constant for the Hacker News-style popularity formula.
+	Gravity = 1.8
+)
+
 type BlogModel struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty"`
-	Title     string             `bson:"title"`
-	Content   string             `bson:"content"`
-	AuthorID  primitive.ObjectID `bson:"author_id"`
-	Tags      []string           `bson:"tags"`
-	Views     int64              `bson:"views"`
-	Likes     int64              `bson:"likes"`
-	Dislikes  int64              `bson:"dislikes"`
-	CreatedAt time.Time          `bson:"created_at"`
-	UpdatedAt time.Time          `bson:"updated_at"`
+	ID              primitive.ObjectID `bson:"_id,omitempty"`
+	Title           string             `bson:"title"`
+	Content         string             `bson:"content"`
+	AuthorID        primitive.ObjectID `bson:"author_id"`
+	Tags            []string           `bson:"tags"`
+	Views           int64              `bson:"views"`
+	Likes           int64              `bson:"likes"`
+	Dislikes        int64              `bson:"dislikes"`
+	EngagementScore float64            `bson:"engagementScore"`
+	CreatedAt       time.Time          `bson:"created_at"`
+	UpdatedAt       time.Time          `bson:"updated_at"`
 }
 
 // blogRepository implements the domain.BlogRepository interface using MongoDB.
@@ -83,39 +92,193 @@ func (r *blogRepository) GetByID(ctx context.Context, id string) (*domain.Blog, 
 	return toBlogDomain(&model), nil
 }
 
-func (r *blogRepository) Fetch(ctx context.Context, page, limit int64) ([]*domain.Blog, int64, error) {
-	// First, get the total count of documents for pagination metadata.
-	total, err := r.collection.CountDocuments(ctx, bson.M{})
+// SearchAndFilter is the main public method for querying blogs.
+// It acts as a router, delegating to the most efficient query strategy
+// based on whether the user is sorting by popularity.
+func (r *blogRepository) SearchAndFilter(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+	if opts.SortBy == "popularity" {
+		return r.executePopularityAggregation(ctx, opts)
+	}
+	return r.executeSimpleFind(ctx, opts)
+}
+
+// executeSimpleFind handles all non-popularity sorts using an efficient `find` command.
+// This is faster than an aggregation pipeline for simple queries.
+func (r *blogRepository) executeSimpleFind(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+	// 1. Build the filter document using the shared helper.
+	filter, err := buildFilter(opts)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// Configure find options for pagination and sorting.
+	// 2. Get the total count of documents that match the filter for pagination.
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 3. Configure find options for pagination and sorting.
 	findOptions := options.Find()
-	findOptions.SetLimit(limit)
-	findOptions.SetSkip((page - 1) * limit)
-	findOptions.SetSort(bson.D{{Key: "created_at", Value: -1}}) // Sort by most recent
+	findOptions.SetLimit(opts.Limit)
+	findOptions.SetSkip((opts.Page - 1) * opts.Limit)
 
-	cursor, err := r.collection.Find(ctx, bson.M{}, findOptions)
+	sortValue := -1 // Default to DESC
+	if opts.SortOrder == domain.SortOrderASC {
+		sortValue = 1
+	}
+	var sortDoc bson.D
+	switch opts.SortBy {
+	case "title":
+		sortDoc = bson.D{{Key: "title", Value: sortValue}}
+	default: // "date" or any other value defaults to sorting by creation date.
+		sortDoc = bson.D{{Key: "created_at", Value: sortValue}}
+	}
+	findOptions.SetSort(sortDoc)
+
+	// 4. Execute the find query.
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
 	if err != nil {
 		return nil, 0, err
 	}
-	defer cursor.Close(ctx) // Ensure the cursor is closed
+	defer cursor.Close(ctx)
 
+	// 5. Decode the results.
 	var blogs []*domain.Blog
 	for cursor.Next(ctx) {
 		var model BlogModel
 		if err := cursor.Decode(&model); err != nil {
-			return nil, 0, err // Stop and return on a decoding error
+			return nil, 0, err
 		}
 		blogs = append(blogs, toBlogDomain(&model))
 	}
 
-	if err := cursor.Err(); err != nil {
+	return blogs, total, cursor.Err()
+}
+
+// executePopularityAggregation handles the complex case of sorting by a calculated popularity score.
+// It uses a MongoDB aggregation pipeline to compute the score on the fly.
+func (r *blogRepository) executePopularityAggregation(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+	// 1. Build the filter document using the shared helper.
+	filter, err := buildFilter(opts)
+	if err != nil {
 		return nil, 0, err
 	}
 
-	return blogs, total, nil
+	// 2. Get the total count before aggregation for pagination metadata.
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Constants for the Hacker News-style popularity formula.
+	now := time.Now()
+
+	// 3. Define the aggregation pipeline.
+	pipeline := mongo.Pipeline{
+		// Stage 1: Filter documents to only those that match the search criteria.
+		bson.D{{Key: "$match", Value: filter}},
+
+		// Stage 2: Add a new field 'popularity' calculated on the fly.
+		bson.D{{Key: "$addFields", Value: bson.D{
+			{Key: "popularity", Value: bson.D{
+				{Key: "$divide", Value: bson.A{
+					// Numerator: The pre-calculated engagement score.
+					"$engagementScore",
+					// Denominator: (Time_In_Hours + 2) ^ Gravity
+					bson.D{{Key: "$pow", Value: bson.A{
+						bson.D{{Key: "$add", Value: bson.A{
+							// Calculate age in hours: (Now - CreatedAt) / (ms in an hour)
+							bson.D{{Key: "$divide", Value: bson.A{
+								bson.D{{Key: "$subtract", Value: bson.A{now, "$created_at"}}},
+								3600000,
+							}}},
+							2, // Add a buffer to prevent division by zero for new posts.
+						}}},
+						Gravity,
+					}}},
+				}},
+			}},
+		}}},
+
+		// Stage 3: Sort by the newly calculated popularity field in descending order.
+		bson.D{{Key: "$sort", Value: bson.D{{Key: "popularity", Value: -1}}}},
+
+		// Stage 4 & 5: Apply pagination to the sorted results.
+		bson.D{{Key: "$skip", Value: (opts.Page - 1) * opts.Limit}},
+		bson.D{{Key: "$limit", Value: opts.Limit}},
+	}
+
+	// 4. Execute the aggregation pipeline.
+	cursor, err := r.collection.Aggregate(ctx, pipeline)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	// 5. Decode the results.
+	var blogs []*domain.Blog
+	for cursor.Next(ctx) {
+		var model BlogModel
+		if err := cursor.Decode(&model); err != nil {
+			return nil, 0, err
+		}
+		blogs = append(blogs, toBlogDomain(&model))
+	}
+
+	return blogs, total, cursor.Err()
+}
+
+// buildFilter is a helper function that constructs the MongoDB filter document
+// from the search options. It is used by both find and aggregation queries.
+func buildFilter(opts domain.BlogSearchFilterOptions) (bson.M, error) {
+	// A slice to hold all individual filter conditions.
+	var conditions []bson.M
+
+	if opts.Title != nil {
+		conditions = append(conditions, bson.M{"title": bson.M{"$regex": *opts.Title, "$options": "i"}})
+	}
+
+	if len(opts.AuthorIDs) > 0 {
+		var authorObjIDs []primitive.ObjectID
+		for _, id := range opts.AuthorIDs {
+			if objID, err := primitive.ObjectIDFromHex(id); err == nil {
+				authorObjIDs = append(authorObjIDs, objID)
+			}
+		}
+		if len(authorObjIDs) > 0 {
+			conditions = append(conditions, bson.M{"author_id": bson.M{"$in": authorObjIDs}})
+		}
+	}
+
+	if len(opts.Tags) > 0 {
+		tagOperator := "$in"
+		if opts.TagLogic == domain.GlobalLogicAND {
+			tagOperator = "$all"
+		}
+		conditions = append(conditions, bson.M{"tags": bson.M{tagOperator: opts.Tags}})
+	}
+
+	dateFilter := bson.M{}
+	if opts.StartDate != nil {
+		dateFilter["$gte"] = *opts.StartDate
+	}
+	if opts.EndDate != nil {
+		dateFilter["$lte"] = *opts.EndDate
+	}
+	if len(dateFilter) > 0 {
+		conditions = append(conditions, bson.M{"created_at": dateFilter})
+	}
+
+	// Construct the final filter based on the GlobalLogic.
+	if len(conditions) == 0 {
+		return bson.M{}, nil // Empty filter matches all documents.
+	}
+
+	operator := "$and" // Default to AND logic
+	if opts.GlobalLogic == domain.GlobalLogicOR {
+		operator = "$or"
+	}
+	return bson.M{operator: conditions}, nil
 }
 
 func (r *blogRepository) Update(ctx context.Context, blog *domain.Blog) error {
@@ -163,6 +326,53 @@ func (r *blogRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *blogRepository) IncrementLikes(ctx context.Context, blogID string, value int) error {
+	return r.UpdateInteractionCounts(ctx, blogID, value, 0)
+}
+
+func (r *blogRepository) IncrementDislikes(ctx context.Context, blogID string, value int) error {
+	return r.UpdateInteractionCounts(ctx, blogID, 0, value)
+}
+
+func (r *blogRepository) IncrementViews(ctx context.Context, blogID string) error {
+	objID, err := primitive.ObjectIDFromHex(blogID)
+	if err != nil {
+		return err
+	}
+	filter := bson.M{"_id": objID}
+	update := bson.M{"$inc": bson.M{
+		"views":           1,
+		"engagementScore": ViewWeight,
+	}}
+
+	// Using UpdateOne is fine, it's a "fire-and-forget" operation.
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	return err // The caller (e.g., a goroutine) can decide what to do with this error.
+}
+
+func (r *blogRepository) UpdateInteractionCounts(ctx context.Context, blogID string, likesInc, dislikesInc int) error {
+	objID, err := primitive.ObjectIDFromHex(blogID)
+	if err != nil {
+		return usecases.ErrNotFound
+	}
+	filter := bson.M{"_id": objID}
+
+	scoreChange := (float64(likesInc) * LikeWeight) + (float64(dislikesInc) * DislikeWeight)
+
+	// This single update modifies both fields atomically.
+	// It will either completely succeed or completely fail.
+	update := bson.M{
+		"$inc": bson.M{
+			"likes":           likesInc,
+			"dislikes":        dislikesInc,
+			"engagementScore": scoreChange,
+		},
+	}
+
+	_, err = r.collection.UpdateOne(ctx, filter, update)
+	return err
+}
+
 // --- Mapper Functions ---
 
 // toBlogDomain converts a persistence model (BlogModel) to a domain entity (Blog).
@@ -190,14 +400,15 @@ func fromBlogDomain(blog *domain.Blog) (*BlogModel, error) {
 	}
 
 	return &BlogModel{
-		Title:     blog.Title,
-		Content:   blog.Content,
-		AuthorID:  authorID,
-		Tags:      blog.Tags,
-		Views:     blog.Views,
-		Likes:     blog.Likes,
-		Dislikes:  blog.Dislikes,
-		CreatedAt: blog.CreatedAt,
-		UpdatedAt: blog.UpdatedAt,
+		Title:           blog.Title,
+		Content:         blog.Content,
+		AuthorID:        authorID,
+		Tags:            blog.Tags,
+		Views:           blog.Views,
+		Likes:           blog.Likes,
+		Dislikes:        blog.Dislikes,
+		EngagementScore: 0,
+		CreatedAt:       blog.CreatedAt,
+		UpdatedAt:       blog.UpdatedAt,
 	}, nil
 }

@@ -18,6 +18,53 @@ type Blog struct {
 	UpdatedAt time.Time
 }
 
+type GlobalLogic string
+type SortOrder string
+type ActionType string
+
+const (
+	GlobalLogicOR  GlobalLogic = "OR"
+	GlobalLogicAND GlobalLogic = "AND"
+
+	SortOrderASC  SortOrder = "ASC"
+	SortOrderDESC SortOrder = "DESC"
+
+	ActionTypeLike    ActionType = "like"
+	ActionTypeDislike ActionType = "dislike"
+)
+
+type BlogSearchFilterOptions struct {
+	Title      *string
+	AuthorName *string
+	AuthorIDs  []string
+	// AND or OR
+	GlobalLogic GlobalLogic
+
+	// List of tags
+	Tags []string
+	// AND or OR
+	TagLogic GlobalLogic
+
+	StartDate *time.Time
+	EndDate   *time.Time
+
+	Page  int64
+	Limit int64
+
+	SortBy string
+	// ASC or DESC
+	SortOrder SortOrder
+}
+
+type BlogInteraction struct {
+	ID        string
+	UserID    string
+	BlogID    string
+	Action    ActionType
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 func NewBlog(title, content string, authorID string, tags []string) (*Blog, error) {
 	if strings.TrimSpace(title) == "" {
 		return nil, ErrValidation

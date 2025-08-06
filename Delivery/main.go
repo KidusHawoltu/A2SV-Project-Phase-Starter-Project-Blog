@@ -48,6 +48,16 @@ func main() {
 		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
 	}
 
+	geminiModel := os.Getenv("GEMINI_MODEL")
+	if geminiModel == "" {
+		geminiModel = "gemini-2.5-pro"
+	}
+	geminiApiKey := os.Getenv("GEMINI_API_KEY")
+	if geminiApiKey == "" {
+		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
+	}
+	usecaseTimeout := 5 * time.Second
+
 	// SMTP email settings
 	smtpHost := getEnv("SMTP_HOST", "smtp.mailtrap.io")
 	smtpPort, _ := strconv.Atoi(getEnv("SMTP_PORT", "2525"))
@@ -96,6 +106,7 @@ func main() {
 	userController := controllers.NewUserController(userUsecase)
 	blogController := controllers.NewBlogController(blogUsecase)
 	aiController := controllers.NewAIController(aiUsecase)
+
 
 	// --- Router ---
 	router := routers.SetupRouter(userController, blogController, aiController, jwtService)

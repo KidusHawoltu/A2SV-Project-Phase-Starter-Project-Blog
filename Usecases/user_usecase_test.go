@@ -58,6 +58,14 @@ func (m *MockTokenRepository) Delete(ctx context.Context, tokenID string) error 
 func (m *MockTokenRepository) DeleteByUserID(ctx context.Context, userID string, tokenType domain.TokenType) error {
 	args := m.Called(ctx, userID, tokenType)
 	return args.Error(0)
+func (m *MockUserRepository) FindUserIDsByName(ctx context.Context, name string) ([]string, error) {
+	args := m.Called(ctx, name)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+type MockPasswordService struct {
+	mock.Mock
+
 }
 
 type MockPasswordService struct{ mock.Mock }
@@ -213,12 +221,12 @@ func TestUserUsecase_ActivateAccount(t *testing.T) {
 		mockUserRepo.On("GetByID", mock.Anything, "user-123").Return(user, nil).Once()
 		mockUserRepo.On("Update", mock.Anything, mock.MatchedBy(func(u *domain.User) bool { return u.IsActive })).Return(nil).Once()
 		mockTokenRepo.On("Delete", mock.Anything, "token-id").Return(nil).Once()
-
 		err := uc.ActivateAccount(context.Background(), "valid.token")
 		assert.NoError(t, err)
 		mockTokenRepo.AssertExpectations(t)
 	})
 }
+
 
 func TestUserUsecase_ForgotPassword(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
@@ -239,6 +247,7 @@ func TestUserUsecase_ForgotPassword(t *testing.T) {
 	})
 }
 
+
 func TestUserUsecase_ResetPassword(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockTokenRepo := new(MockTokenRepository)
@@ -253,7 +262,6 @@ func TestUserUsecase_ResetPassword(t *testing.T) {
 		mockPassSvc.On("HashPassword", "new-password123").Return("new_hashed_password", nil).Once()
 		mockUserRepo.On("Update", mock.Anything, mock.MatchedBy(func(u *domain.User) bool { return u.Password == "new_hashed_password" })).Return(nil).Once()
 		mockTokenRepo.On("Delete", mock.Anything, "token-id").Return(nil).Once()
-
 		err := uc.ResetPassword(context.Background(), "valid.token", "new-password123")
 		assert.NoError(t, err)
 		mockUserRepo.AssertExpectations(t)

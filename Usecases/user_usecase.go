@@ -26,6 +26,7 @@ type TokenRepository interface {
 	GetByValue(ctx context.Context, tokenValue string) (*domain.Token, error)
 	Delete(ctx context.Context, tokenID string) error
 	DeleteByUserID(ctx context.Context, userID string, tokenType domain.TokenType) error
+	FindUserIDsByName(ctx context.Context, authorName string) ([]string, error)
 }
 type UserUsecase interface {
 	Register(ctx context.Context, user *domain.User) error
@@ -67,10 +68,14 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
-	if err := user.Validate(); err != nil { return err }
+	if err := user.Validate(); err != nil {
+		return err
+	}
 
 	existingUser, _ := uc.userRepo.GetByEmail(ctx, user.Email)
-	if existingUser != nil { return domain.ErrEmailExists }
+	if existingUser != nil {
+		return domain.ErrEmailExists
+	}
 
 	// Also check for username uniqueness
 	existingUser, _ = uc.userRepo.GetByUsername(ctx, user.Username)
@@ -79,7 +84,9 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 	}
 
 	hashedPassword, err := uc.passwordService.HashPassword(user.Password)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	user.Password = hashedPassword
 	user.Role = domain.RoleUser
 	user.IsActive = false
@@ -135,7 +142,7 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 	defer cancel()
 
 	var user *domain.User
-	var err error 
+	var err error
 
 	if _, mailErr := mail.ParseAddress(identifier); mailErr == nil {
 		user, err = uc.userRepo.GetByEmail(ctx, identifier)
@@ -382,4 +389,3 @@ func (uc *userUsecase) generateAndStoreTokenPair(ctx context.Context, user *doma
 
 	return accessToken, refreshToken, nil
 }
-

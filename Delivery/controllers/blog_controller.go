@@ -278,3 +278,4 @@ func toPaginatedBlogResponse(blogs []*domain.Blog, total, page, limit int64) Pag
 		},
 	}
 }
+
