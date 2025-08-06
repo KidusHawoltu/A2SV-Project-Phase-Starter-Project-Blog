@@ -37,7 +37,7 @@ func fromTokenDomain(t *domain.Token) (*tokenMongo,error) {
 		var err error
 		objectID , err = primitive.ObjectIDFromHex(t.ID)
 		if err != nil {
-			return nil, domain.ERRInvalidID
+			return nil, domain.ErrInvalidID
 		}
 	}
 
