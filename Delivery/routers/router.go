@@ -22,7 +22,10 @@ func SetupRouter(
 	// ---------------------
 	auth := apiV1.Group("/auth")
 	auth.POST("/register", userController.Register)
+	auth.GET("/activate", userController.ActivateAccount)
 	auth.POST("/login", userController.Login)
+	auth.POST("/refresh", userController.RefreshToken)
+	auth.POST("/logout", userController.Logout)
 
 	// ------------------------
 	// Profile Routes (Private)
@@ -30,6 +33,13 @@ func SetupRouter(
 	profile := apiV1.Group("/profile")
 	profile.Use(infrastructure.AuthMiddleware(jwtService))
 	profile.GET("", userController.GetProfile)
+
+	//-------------------------
+	// Password Routes (Public)
+	// ------------------------
+	password := apiV1.Group("/password")
+	password.POST("/forget", userController.ForgetPassword)
+	password.POST("/reset", userController.ResetPassword)
 
 	// ------------------------
 	// Blog Routes (Protected)

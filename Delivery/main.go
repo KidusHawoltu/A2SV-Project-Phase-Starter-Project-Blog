@@ -1,15 +1,16 @@
 package main
 
 import (
-	"A2SV_Starter_Project_Blog/Delivery/controllers"
+	"context"
+	"log"
+	"os"
+	"strconv"
+	"time"
+	"A2SV_Starter_Project_Blog/Delivery/controllers" // Adjust import paths as needed
 	"A2SV_Starter_Project_Blog/Delivery/routers"
 	"A2SV_Starter_Project_Blog/Infrastructure"
 	"A2SV_Starter_Project_Blog/Repositories"
 	"A2SV_Starter_Project_Blog/Usecases"
-	"context"
-	"log"
-	"os"
-	"time"
 
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -17,77 +18,101 @@ import (
 )
 
 func main() {
-	// Load .env file
-	if err := godotenv.Load(".env"); err != nil {
+	// Load .env file (from remote) - this is a good pattern
+	if err := godotenv.Load(); err != nil {
 		if err := godotenv.Load("../.env"); err != nil {
 			log.Println("No .env file found, proceeding with environment defaults...")
 		}
 	}
 
-	// Configurations
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017"
-	}
-
-	dbName := os.Getenv("DB_NAME")
-	if dbName == "" {
-		dbName = "g6-blog-db"
-	}
-
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "a-very-secret-key-that-should-be-long-and-random"
-	}
-
-	jwtIssuer := "g6-blog-api"
-	jwtTTL := 15 * time.Minute
-	serverPort := os.Getenv("PORT")
-	if serverPort == "" {
-		serverPort = "8080"
-	}
+	// --- Configurations ---
+	// Using the helper function for cleanliness
+	mongoURI := getEnv("MONGO_URI", "mongodb://localhost:27017")
+	dbName := getEnv("DB_NAME", "g6-blog-db")
+	serverPort := getEnv("PORT", "8080")
 	usecaseTimeout := 5 * time.Second
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	// JWT Config (MERGED) - Using separate TTLs from your local logic
+	jwtSecret := getEnv("JWT_SECRET", "default-secret-key-please-change")
+	jwtIssuer := "g6-blog-api"
+	accessTTL, _ := strconv.Atoi(getEnv("JWT_ACCESS_TTL_MIN", "15"))
+	refreshTTL, _ := strconv.Atoi(getEnv("JWT_REFRESH_TTL_HR", "72"))
+	jwtAccessTTL := time.Duration(accessTTL) * time.Minute
+	jwtRefreshTTL := time.Duration(refreshTTL) * time.Hour
+
+	// AI Config (from remote)
+	geminiApiKey := getEnv("GEMINI_API_KEY", "")
+	geminiModel := getEnv("GEMINI_MODEL", "gemini-pro")
+	if geminiApiKey == "" {
+		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
+	}
+    
+    // SMTP Config (from your local logic, needed for Phase 3)
+	smtpHost := getEnv("SMTP_HOST", "smtp.mailtrap.io")
+	smtpPort, _ := strconv.Atoi(getEnv("SMTP_PORT", "2525"))
+	smtpUser := getEnv("SMTP_USER", "")
+	smtpPass := getEnv("SMTP_PASSWORD", "")
+	smtpFrom := getEnv("SMTP_FROM_EMAIL", "no-reply@example.com")
+
+
+	// --- Database Connection (from remote) ---
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Using a shorter, more reasonable timeout
 	defer cancel()
 
-	// --- MongoDB Setup ---
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
-
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB (ping failed): %v", err)
-	}
-
 	defer client.Disconnect(context.Background())
 	db := client.Database(dbName)
-
 	log.Println("MongoDB connected.")
 
-	// --- Infrastructure Setup ---
+	// --- Dependency Injection (MERGED) ---
+
+	// Infrastructure (All services from both versions)
 	passwordService := infrastructure.NewPasswordService()
-	jwtService := infrastructure.NewJWTService(jwtSecret, jwtIssuer, jwtTTL)
+	// **MERGED**: Pass both TTLs to JWT Service
+	jwtService := infrastructure.NewJWTService(jwtSecret, jwtIssuer, jwtAccessTTL, jwtRefreshTTL)
+	// **ADDED from local**: Instantiate the SMTP service
+	emailService := infrastructure.NewSMTPEmailService(smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom)
+	// **KEPT from remote**: AI Service
+	aiService, err := infrastructure.NewGeminiAIService(geminiApiKey, geminiModel)
+	if err != nil {
+		log.Printf("WARN: Failed to initialize AI service: %v. AI features will be unavailable.", err)
+	}
 
-	// --- Repositories ---
+	// Repositories (All repos from both versions)
 	userRepo := repositories.NewMongoUserRepository(db, "users")
-	blogRepo := repositories.NewBlogRepository(db.Collection("blogs"))
+	// **ADDED from local**: Token Repository is needed for Phase 3
+	tokenRepo := repositories.NewMongoTokenRepository(db, "tokens") 
+	blogRepo := repositories.NewBlogRepository(db, "blogs")
+	interactionRepo := repositories.NewInteractionRepository(db, "interactions")
 
-	// --- Usecases ---
-	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, usecaseTimeout)
-	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, usecaseTimeout)
+	// Usecases (All usecases from both versions)
+	// **MERGED**: Pass all dependencies to the UserUsecase constructor for full Phase 3 functionality
+	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, usecaseTimeout)
+	// **KEPT from remote**: Blog and AI usecases
+	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
+	aiUsecase := usecases.NewAIUsecase(aiService)
 
-	// --- Controllers ---
+	// Controllers (All controllers from both versions)
 	userController := controllers.NewUserController(userUsecase)
 	blogController := controllers.NewBlogController(blogUsecase)
+	aiController := controllers.NewAIController(aiUsecase)
 
-	// --- Setup Router ---
-	router := routers.SetupRouter(userController, blogController, jwtService)
+	// --- Router Setup (from remote, as it's more complete) ---
+	router := routers.SetupRouter(userController, blogController, aiController, jwtService)
 
 	log.Printf("Server starting on port %s...", serverPort)
 	if err := router.Run(":" + serverPort); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
+}
+
+// getEnv is a helper function to read an environment variable or return a default value
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }

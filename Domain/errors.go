@@ -18,4 +18,12 @@ var (
 	ErrAuthenticationFailed = errors.New("authentication failed: invalid credentials")
 	ErrUserNotFound         = errors.New("user not found")
 	ErrPermissionDenied     = errors.New("permission denied")
+	ErrUsernameExists       = errors.New("username already exists")
+
+	// Token errors
+	ErrInvalidID                = errors.New("invalid ID was used")
+	ErrInvalidResetToken        = errors.New("invalid or expired password reset token")
+	ErrCannotDemoteSelf         = errors.New("admin cannot demote themselves")
+	ErrAccountNotActive         = errors.New("this account has not been activated")
+	ErrInvalidActivationToken   = errors.New("invalid or expired activation token")
 )

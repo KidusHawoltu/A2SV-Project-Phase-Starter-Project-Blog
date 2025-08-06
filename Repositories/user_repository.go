@@ -16,6 +16,7 @@ type userMongo struct {
 	ID             primitive.ObjectID `bson:"_id,omitempty"`
 	Username       string             `bson:"username"`
 	Email          string             `bson:"email"`
+	IsActive       string             `bson:"isActive"`
 	Password       string             `bson:"password"`
 	Role           domain.Role        `bson:"role"`
 	Bio            string             `bson:"bio,omitempty"`
@@ -118,4 +119,23 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 		return nil, err
 	}
 	return toUserDomain(mongoModel), nil
+}
+
+func(r *mongoUserRepository) Update(ctx context.Context, user *domain.User) error {
+	ObjectID, err := primitive.ObjectIDFromHex(user.ID)
+	if err != nil {
+		return domain.ErrUserNotFound
+	}
+	user.UpdatedAt = time.Now()
+	update := bson.M{
+		"$set": bson.M{
+			"bio":  user.Bio,
+			"profilePicture": user.ProfilePicture,
+			"updatedAt": user.UpdatedAt,
+			"password": user.UpdatedAt,
+		},
+	}
+
+	_, err = r.collection.UpdateByID(ctx, ObjectID, update)
+	return err 
 }
