@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	domain "A2SV_Starter_Project_Blog/Domain"
+	"errors"
 	"fmt"
 	"time"
 
@@ -26,18 +27,18 @@ type JWTClaims struct {
 }
 
 type jwtService struct {
-	secretKey      	string
-	issuer         	string
-	accessTokenTTL 	time.Duration
+	secretKey       string
+	issuer          string
+	accessTokenTTL  time.Duration
 	refreshTokenTTL time.Duration
 }
 
 // NewJWTService creates a new JWT service instance.
 func NewJWTService(secret, issuer string, accessTokenTTL, refreshTokenTTL time.Duration) JWTService {
 	return &jwtService{
-		secretKey:      secret,
-		issuer:         issuer,
-		accessTokenTTL: accessTokenTTL,
+		secretKey:       secret,
+		issuer:          issuer,
+		accessTokenTTL:  accessTokenTTL,
 		refreshTokenTTL: refreshTokenTTL,
 	}
 }
@@ -47,7 +48,7 @@ func (s *jwtService) GenerateAccessToken(userID string, role domain.Role) (strin
 		UserID: userID,
 		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ID: uuid.NewString(),
+			ID:        uuid.NewString(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTokenTTL)),
 			Issuer:    s.issuer,
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -82,9 +83,9 @@ func (s *jwtService) GenerateRefreshToken(userID string) (string, *JWTClaims, er
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate((time.Now().Add((s.refreshTokenTTL)))),
-			Issuer: s.issuer,
-			IssuedAt: jwt.NewNumericDate(time.Now()),
-			ID: uuid.NewString(),
+			Issuer:    s.issuer,
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ID:        uuid.NewString(),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -92,19 +93,19 @@ func (s *jwtService) GenerateRefreshToken(userID string) (string, *JWTClaims, er
 	return tokenString, claims, err
 }
 
-func(s *jwtService) ParseExpiredToken(tokenString string) (*JWTClaims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error){
+func (s *jwtService) ParseExpiredToken(tokenString string) (*JWTClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(s.secretKey), nil
 	})
 
 	if claims, ok := token.Claims.(*JWTClaims); ok {
-		if err != nil && err != jwt.ErrTokenExpired {
+		if err != nil && !errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, err
 		}
 		return claims, nil
 	}
 
-	return  nil, fmt.Errorf("invalid token claims")
+	return nil, fmt.Errorf("invalid token claims")
 }
 
 func (s *jwtService) GetRefreshTokenExpiry() time.Duration {

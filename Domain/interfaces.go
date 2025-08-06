@@ -32,6 +32,7 @@ type IBlogRepository interface {
 	IncrementLikes(ctx context.Context, blogID string, value int) error
 	IncrementDislikes(ctx context.Context, blogID string, value int) error
 	IncrementViews(ctx context.Context, blogID string) error
+	IncrementCommentCount(ctx context.Context, blogId string, value int) error
 	UpdateInteractionCounts(ctx context.Context, blogID string, likesInc, dislikesInc int) error
 }
 
@@ -52,4 +53,30 @@ type IAIService interface {
 type IAIUsecase interface {
 	GenerateBlogIdeas(ctx context.Context, keywords []string) ([]string, error)
 	RefineBlogPost(ctx context.Context, content string) (string, error)
+}
+
+type ICommentRepository interface {
+	Create(ctx context.Context, comment *Comment) error
+	GetByID(ctx context.Context, commentID string) (*Comment, error)
+	Update(ctx context.Context, comment *Comment) error
+
+	Anonymize(ctx context.Context, commentID string) error
+
+	FetchByBlogID(ctx context.Context, blogID string, page, limit int64) ([]*Comment, int64, error)
+
+	FetchReplies(ctx context.Context, parentID string, page, limit int64) ([]*Comment, int64, error)
+
+	IncrementReplyCount(ctx context.Context, parentID string, value int) error
+}
+
+type ICommentUsecase interface {
+	CreateComment(ctx context.Context, userID, blogID, content string, parentID *string) (*Comment, error)
+
+	UpdateComment(ctx context.Context, userID, commentID, content string) (*Comment, error)
+
+	DeleteComment(ctx context.Context, userID, commentID string) error
+
+	GetCommentsForBlog(ctx context.Context, blogID string, page, limit int64) ([]*Comment, int64, error)
+
+	GetRepliesForComment(ctx context.Context, parentID string, page, limit int64) ([]*Comment, int64, error)
 }

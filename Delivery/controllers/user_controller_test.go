@@ -12,15 +12,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-  "github.com/stretchr/testify/suite"
-)
-
-
-	
 )
 
 // --- Mock UserUsecase ---
@@ -54,7 +48,9 @@ func (m *MockUserUsecase) ResetPassword(ctx context.Context, token, newPassword 
 }
 func (m *MockUserUsecase) UpdateProfile(ctx context.Context, userID, bio, profilePicURL string) (*domain.User, error) {
 	args := m.Called(ctx, userID, bio, profilePicURL)
-	if args.Get(0) == nil { return nil, args.Error(1) }
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 func (m *MockUserUsecase) ActivateAccount(ctx context.Context, token string) error {
@@ -64,7 +60,9 @@ func (m *MockUserUsecase) ActivateAccount(ctx context.Context, token string) err
 
 func (m *MockUserUsecase) GetProfile(ctx context.Context, userID string) (*domain.User, error) {
 	args := m.Called(ctx, userID)
-	if args.Get(0) == nil { return  nil, args.Error(1)}
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*domain.User), args.Error(1)
 
 }
@@ -85,7 +83,7 @@ func setupUserRouter(uc usecases.UserUsecase) *gin.Engine {
 	}
 	password := router.Group("/password")
 	{
-		password.POST("/forgot", userController.ForgetPassword)
+		password.POST("/forget", userController.ForgetPassword)
 		password.POST("/reset", userController.ResetPassword)
 	}
 	profile := router.Group("/profile")
@@ -123,7 +121,7 @@ func TestUserController_Register(t *testing.T) {
 		assert.Contains(t, w.Body.String(), `"id":"mock-id-123"`)
 		mockUsecase.AssertExpectations(t)
 	})
-	
+
 	t.Run("Failure - Email Exists", func(t *testing.T) {
 		reqPayload := controllers.RegisterRequest{Username: "test", Email: "exists@test.com", Password: "password123"}
 		mockUsecase.On("Register", mock.Anything, mock.AnythingOfType("*domain.User")).Return(domain.ErrEmailExists).Once()
@@ -133,7 +131,7 @@ func TestUserController_Register(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, "/auth/register", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
-		
+
 		assert.Equal(t, http.StatusConflict, w.Code)
 		mockUsecase.AssertExpectations(t)
 	})
@@ -202,17 +200,17 @@ func TestUserController_RefreshToken(t *testing.T) {
 	})
 }
 
-func TestUserController_ForgotPassword(t *testing.T) {
+func TestUserController_ForgetPassword(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
 	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		reqPayload := controllers.ForgetPasswordRequest{Email: "user@example.com"}
-		mockUsecase.On("ForgotPassword", mock.Anything, "user@example.com").Return(nil).Once()
+		mockUsecase.On("ForgetPassword", mock.Anything, "user@example.com").Return(nil).Once()
 
 		body, _ := json.Marshal(reqPayload)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest(http.MethodPost, "/password/forgot", bytes.NewBuffer(body))
+		req, _ := http.NewRequest(http.MethodPost, "/password/forget", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		router.ServeHTTP(w, req)
 
@@ -248,11 +246,11 @@ func TestUserController_ActivateAccount(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		mockUsecase.On("ActivateAccount", mock.Anything, "valid.token").Return(nil).Once()
-		
+
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodGet, "/auth/activate?token=valid.token", nil)
 		router.ServeHTTP(w, req)
-		
+
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Body.String(), "Account activated successfully")
 		mockUsecase.AssertExpectations(t)
@@ -268,7 +266,7 @@ func TestUserController_UpdateProfile(t *testing.T) {
 		updatedUser := &domain.User{ID: "test-user-id", Bio: "new bio", ProfilePicture: "new.url"}
 		mockUsecase.On("UpdateProfile", mock.Anything, "test-user-id", "new bio", "new.url").
 			Return(updatedUser, nil).Once()
-		
+
 		body, _ := json.Marshal(reqPayload)
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPut, "/profile", bytes.NewBuffer(body))

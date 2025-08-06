@@ -5,9 +5,11 @@ import (
 	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -22,17 +24,23 @@ func (m *MockUserRepository) Create(ctx context.Context, user *domain.User) erro
 }
 func (m *MockUserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	args := m.Called(ctx, email)
-	if args.Get(0) == nil { return nil, args.Error(1) }
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 func (m *MockUserRepository) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
 	args := m.Called(ctx, username)
-	if args.Get(0) == nil { return nil, args.Error(1) }
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 func (m *MockUserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
 	args := m.Called(ctx, id)
-	if args.Get(0) == nil { return nil, args.Error(1) }
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*domain.User), args.Error(1)
 }
 func (m *MockUserRepository) Update(ctx context.Context, user *domain.User) error {
@@ -48,7 +56,9 @@ func (m *MockTokenRepository) Store(ctx context.Context, token *domain.Token) er
 }
 func (m *MockTokenRepository) GetByValue(ctx context.Context, tokenValue string) (*domain.Token, error) {
 	args := m.Called(ctx, tokenValue)
-	if args.Get(0) == nil { return nil, args.Error(1) }
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).(*domain.Token), args.Error(1)
 }
 func (m *MockTokenRepository) Delete(ctx context.Context, tokenID string) error {
@@ -58,6 +68,7 @@ func (m *MockTokenRepository) Delete(ctx context.Context, tokenID string) error 
 func (m *MockTokenRepository) DeleteByUserID(ctx context.Context, userID string, tokenType domain.TokenType) error {
 	args := m.Called(ctx, userID, tokenType)
 	return args.Error(0)
+}
 func (m *MockUserRepository) FindUserIDsByName(ctx context.Context, name string) ([]string, error) {
 	args := m.Called(ctx, name)
 	return args.Get(0).([]string), args.Error(1)
@@ -65,10 +76,7 @@ func (m *MockUserRepository) FindUserIDsByName(ctx context.Context, name string)
 
 type MockPasswordService struct {
 	mock.Mock
-
 }
-
-type MockPasswordService struct{ mock.Mock }
 
 func (m *MockPasswordService) HashPassword(password string) (string, error) {
 	args := m.Called(password)
@@ -143,7 +151,7 @@ func TestUserUsecase_Register(t *testing.T) {
 	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJWTService, mockTokenRepo, mockEmailSvc, 2*time.Second)
 
 	t.Run("Success", func(t *testing.T) {
-		user := &domain.User{Username: "test", Email: "test@test.com", Password: "password123"}
+		user := &domain.User{Username: "test", Email: "test@test.com", Password: "password123", Role: domain.RoleUser}
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(nil, nil).Once()
 		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(nil, nil).Once()
 		mockPassSvc.On("HashPassword", user.Password).Return("hashed_password", nil).Once()
@@ -158,33 +166,124 @@ func TestUserUsecase_Register(t *testing.T) {
 }
 
 // Your correct test function
+// In usecases/user_usecase_test.go
+
 func TestUserUsecase_Login(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockTokenRepo := new(MockTokenRepository)
 	mockPassSvc := new(MockPasswordService)
 	mockJwtSvc := new(MockJWTService)
 	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, 2*time.Second)
-	user := &domain.User{ID: "user-123", Email: "test@test.com", Password: "hashed_password", IsActive: true}
 
-	t.Run("Success", func(t *testing.T) {
+	// A single, well-defined user for all success tests.
+	user := &domain.User{
+		ID:       "user-123",
+		Email:    "test@test.com",
+		Username: "testuser",
+		Password: "hashed_password",
+		IsActive: true,
+		Role:     domain.RoleUser,
+	}
+
+	accessClaims := &infrastructure.JWTClaims{
+		UserID: user.ID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        "access-jti-123",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
+		},
+	}
+	refreshClaims := &infrastructure.JWTClaims{
+		UserID: user.ID,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        "refresh-jti-456",
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+		},
+	}
+
+	t.Run("Success - Login with Email", func(t *testing.T) {
+		// Arrange
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
 		mockPassSvc.On("ComparePassword", user.Password, "password123").Return(nil).Once()
-		mockJwtSvc.On("GenerateAccessToken", mock.Anything, mock.Anything).Return("access.token", &infrastructure.JWTClaims{}, nil).Once()
-		mockJwtSvc.On("GenerateRefreshToken", mock.Anything).Return("refresh.token", &infrastructure.JWTClaims{}, nil).Once()
-		mockJwtSvc.On("GetRefreshTokenExpiry").Return(1 * time.Hour).Once()
-		mockTokenRepo.On("Store", mock.Anything, mock.Anything).Return(nil).Twice()
+		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("access.token", accessClaims, nil).Once()
+		mockJwtSvc.On("GenerateRefreshToken", user.ID).Return("refresh.token", refreshClaims, nil).Once()
+		mockTokenRepo.On("Store", mock.Anything, mock.AnythingOfType("*domain.Token")).Return(nil).Twice()
 
+		// Act
 		access, refresh, err := uc.Login(context.Background(), user.Email, "password123")
+
+		// Assert
 		assert.NoError(t, err)
 		assert.Equal(t, "access.token", access)
 		assert.Equal(t, "refresh.token", refresh)
+
+		// Assert that all expectations set *in this sub-test* were met.
+		mockUserRepo.AssertExpectations(t)
+		mockPassSvc.AssertExpectations(t)
+		mockJwtSvc.AssertExpectations(t)
+		mockTokenRepo.AssertExpectations(t)
+	})
+
+	t.Run("Success - Login with Username", func(t *testing.T) {
+		// Arrange
+		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(user, nil).Once()
+		mockPassSvc.On("ComparePassword", user.Password, "password123").Return(nil).Once()
+		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("access.token", accessClaims, nil).Once()
+		mockJwtSvc.On("GenerateRefreshToken", user.ID).Return("refresh.token", refreshClaims, nil).Once()
+		mockTokenRepo.On("Store", mock.Anything, mock.AnythingOfType("*domain.Token")).Return(nil).Twice()
+
+		// Act
+		access, refresh, err := uc.Login(context.Background(), user.Username, "password123")
+
+		// Assert
+		assert.NoError(t, err)
+		assert.Equal(t, "access.token", access)
+		assert.Equal(t, "refresh.token", refresh)
+
+		mockUserRepo.AssertExpectations(t)
+		mockPassSvc.AssertExpectations(t)
+		mockJwtSvc.AssertExpectations(t)
+		mockTokenRepo.AssertExpectations(t)
+	})
+
+	t.Run("Failure - User Not Found", func(t *testing.T) {
+		// Arrange
+		// Simulate user not found by returning (nil, nil) from the repository
+		mockUserRepo.On("GetByEmail", mock.Anything, "notfound@test.com").Return(nil, nil).Once()
+
+		// Act
+		_, _, err := uc.Login(context.Background(), "notfound@test.com", "any-password")
+
+		// Assert
+		assert.Error(t, err)
+		assert.Equal(t, domain.ErrAuthenticationFailed, err)
 		mockUserRepo.AssertExpectations(t)
 	})
 
+	t.Run("Failure - Incorrect Password", func(t *testing.T) {
+		// Arrange
+		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
+		// Simulate password mismatch by returning an error from the password service
+		mockPassSvc.On("ComparePassword", user.Password, "wrong-password").Return(errors.New("crypto/bcrypt: hashedPassword is not the hash of the given password")).Once()
+
+		// Act
+		_, _, err := uc.Login(context.Background(), user.Email, "wrong-password")
+
+		// Assert
+		assert.Error(t, err)
+		assert.Equal(t, domain.ErrAuthenticationFailed, err)
+		mockUserRepo.AssertExpectations(t)
+		mockPassSvc.AssertExpectations(t)
+	})
+
 	t.Run("Failure - Account Not Active", func(t *testing.T) {
-		inactiveUser := &domain.User{ID: "user-inactive", IsActive: false}
+		// Arrange
+		inactiveUser := &domain.User{ID: "user-inactive", Email: "inactive@test.com", IsActive: false}
 		mockUserRepo.On("GetByEmail", mock.Anything, "inactive@test.com").Return(inactiveUser, nil).Once()
+
+		// Act
 		_, _, err := uc.Login(context.Background(), "inactive@test.com", "any-password")
+
+		// Assert
 		assert.Error(t, err)
 		assert.Equal(t, domain.ErrAccountNotActive, err)
 		mockUserRepo.AssertExpectations(t)
@@ -200,8 +299,7 @@ func TestUserUsecase_Logout(t *testing.T) {
 
 	t.Run("Success", func(t *testing.T) {
 		mockTokenRepo.On("GetByValue", mock.Anything, "valid.token").Return(token, nil).Once()
-		mockTokenRepo.On("DeleteByUserID", mock.Anything, "user-123", domain.TokenTypeRefresh).Return(nil).Once()
-		mockTokenRepo.On("DeleteByUserID", mock.Anything, "user-123", domain.TokenTypeAccessToken).Return(nil).Once()
+		mockTokenRepo.On("Delete", mock.Anything, token.ID).Return(nil).Once()
 
 		err := uc.Logout(context.Background(), "valid.token")
 		assert.NoError(t, err)
@@ -213,7 +311,7 @@ func TestUserUsecase_ActivateAccount(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockTokenRepo := new(MockTokenRepository)
 	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, mockTokenRepo, nil, 2*time.Second)
-	token := &domain.Token{ID: "token-id", UserID: "user-123", Type: domain.TokenTypeActivation}
+	token := &domain.Token{ID: "token-id", UserID: "user-123", Type: domain.TokenTypeActivation, ExpiresAt: time.Now().Add(1 * time.Hour)}
 	user := &domain.User{ID: "user-123", IsActive: false}
 
 	t.Run("Success", func(t *testing.T) {
@@ -227,8 +325,7 @@ func TestUserUsecase_ActivateAccount(t *testing.T) {
 	})
 }
 
-
-func TestUserUsecase_ForgotPassword(t *testing.T) {
+func TestUserUsecase_ForgetPassword(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockTokenRepo := new(MockTokenRepository)
 	mockEmailSvc := new(MockEmailService)
@@ -247,13 +344,12 @@ func TestUserUsecase_ForgotPassword(t *testing.T) {
 	})
 }
 
-
 func TestUserUsecase_ResetPassword(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockTokenRepo := new(MockTokenRepository)
 	mockPassSvc := new(MockPasswordService)
 	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, nil, mockTokenRepo, nil, 2*time.Second)
-	token := &domain.Token{ID: "token-id", UserID: "user-123", Type: domain.TokenTypePasswordReset}
+	token := &domain.Token{ID: "token-id", UserID: "user-123", Type: domain.TokenTypePasswordReset, ExpiresAt: time.Now().Add(1 * time.Hour)}
 	user := &domain.User{ID: "user-123"}
 
 	t.Run("Success", func(t *testing.T) {
@@ -272,13 +368,13 @@ func TestUserUsecase_UpdateProfile(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, 2*time.Second)
 	user := &domain.User{ID: "user-123"}
-	
+
 	t.Run("Success", func(t *testing.T) {
 		mockUserRepo.On("GetByID", mock.Anything, "user-123").Return(user, nil).Once()
 		mockUserRepo.On("Update", mock.Anything, mock.Anything).Return(nil).Once()
-		
+
 		updatedUser, err := uc.UpdateProfile(context.Background(), "user-123", "new bio", "new.url")
-		
+
 		assert.NoError(t, err)
 		assert.Equal(t, "new bio", updatedUser.Bio)
 		assert.Equal(t, "new.url", updatedUser.ProfilePicture)

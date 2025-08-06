@@ -12,6 +12,7 @@ func SetupRouter(
 	userController *controllers.UserController,
 	blogController *controllers.BlogController,
 	aiController *controllers.AIController,
+	commentController *controllers.CommentController,
 	jwtService infrastructure.JWTService,
 ) *gin.Engine {
 
@@ -55,15 +56,18 @@ func SetupRouter(
 	publicBlogs := apiV1.Group("/blogs")
 	{
 		publicBlogs.GET("", blogController.SearchAndFilter)
-		publicBlogs.GET("/:id", blogController.GetByID)
+		publicBlogs.GET("/:blogID", blogController.GetByID)
+		publicBlogs.GET("/:blogID/comments", commentController.GetCommentsForBlog)
 
 		protectedBlogs := publicBlogs.Group("")
 		protectedBlogs.Use(infrastructure.AuthMiddleware(jwtService))
 		{
 			protectedBlogs.POST("", blogController.Create)
-			protectedBlogs.PUT("/:id", blogController.Update)
-			protectedBlogs.DELETE("/:id", blogController.Delete)
-			protectedBlogs.POST("/:id/interact", blogController.InteractWithBlog)
+			protectedBlogs.PUT("/:blogID", blogController.Update)
+			protectedBlogs.DELETE("/:blogID", blogController.Delete)
+			protectedBlogs.POST("/:blogID/interact", blogController.InteractWithBlog)
+			// If it is a top level comment, parent Id will be null
+			protectedBlogs.POST("/:blogID/comments", commentController.CreateComment)
 		}
 	}
 
@@ -74,6 +78,21 @@ func SetupRouter(
 	ai.Use(infrastructure.AuthMiddleware(jwtService))
 	{
 		ai.POST("/suggest", aiController.Suggest)
+	}
+
+	// ------------------------
+	// Comment Routes
+	// ------------------------
+	comments := apiV1.Group("/comments")
+	{
+		comments.GET("/:commentID/replies", commentController.GetRepliesForComment)
+
+		protectedComments := comments.Group("")
+		protectedComments.Use(infrastructure.AuthMiddleware(jwtService))
+		{
+			protectedComments.PUT("/:commentID", commentController.UpdateComment)
+			protectedComments.DELETE("/:commentID", commentController.DeleteComment)
+		}
 	}
 
 	return router

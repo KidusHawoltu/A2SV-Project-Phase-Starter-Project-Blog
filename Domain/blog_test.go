@@ -42,6 +42,7 @@ func (s *BlogDomainTestSuite) TestNewBlog_Success() {
 	s.Equal(int64(0), blog.Views)
 	s.Equal(int64(0), blog.Likes)
 	s.Equal(int64(0), blog.Dislikes)
+	s.Equal(int64(0), blog.CommentsCount)
 	s.WithinDuration(time.Now().UTC(), blog.CreatedAt, 2*time.Second)
 	s.Equal(blog.CreatedAt, blog.UpdatedAt)
 }

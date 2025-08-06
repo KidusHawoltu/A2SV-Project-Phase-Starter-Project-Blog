@@ -48,16 +48,6 @@ func main() {
 		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
 	}
 
-	geminiModel := os.Getenv("GEMINI_MODEL")
-	if geminiModel == "" {
-		geminiModel = "gemini-2.5-pro"
-	}
-	geminiApiKey := os.Getenv("GEMINI_API_KEY")
-	if geminiApiKey == "" {
-		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
-	}
-	usecaseTimeout := 5 * time.Second
-
 	// SMTP email settings
 	smtpHost := getEnv("SMTP_HOST", "smtp.mailtrap.io")
 	smtpPort, _ := strconv.Atoi(getEnv("SMTP_PORT", "2525"))
@@ -96,20 +86,22 @@ func main() {
 	tokenRepo := repositories.NewMongoTokenRepository(db, "tokens")
 	blogRepo := repositories.NewBlogRepository(db.Collection("blogs"))
 	interactionRepo := repositories.NewInteractionRepository(db.Collection("interactions"))
+	commentRepo := repositories.NewCommentRepository(db.Collection("blog_comments"))
 
 	// --- Usecases ---
 	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, usecaseTimeout)
 	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
 	aiUsecase := usecases.NewAIUsecase(aiService)
+	commentUsecase := usecases.NewCommentUsecase(blogRepo, commentRepo, usecaseTimeout)
 
 	// --- Controllers ---
 	userController := controllers.NewUserController(userUsecase)
 	blogController := controllers.NewBlogController(blogUsecase)
 	aiController := controllers.NewAIController(aiUsecase)
+	commentController := controllers.NewCommentController(commentUsecase)
 
-
-	// --- Router ---
-	router := routers.SetupRouter(userController, blogController, aiController, jwtService)
+	// --- Setup Router ---
+	router := routers.SetupRouter(userController, blogController, aiController, commentController, jwtService)
 
 	log.Printf("Server starting on port %s...", serverPort)
 	if err := router.Run(":" + serverPort); err != nil {

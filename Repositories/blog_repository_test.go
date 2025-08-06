@@ -65,6 +65,7 @@ func (s *BlogRepositoryTestSuite) TestCreate() {
 	s.Equal(s.fixedAuthorID, createdModel.AuthorID)
 	s.Equal([]string{"go", "test"}, createdModel.Tags)
 	s.Equal(float64(0), createdModel.EngagementScore, "EngagementScore should be initialized to 0")
+	s.Equal(int64(0), createdModel.CommentsCount, "CommentsCount should be initialized to 0")
 }
 
 func (s *BlogRepositoryTestSuite) TestGetByID() {
@@ -82,6 +83,7 @@ func (s *BlogRepositoryTestSuite) TestGetByID() {
 	s.Equal("Gettable Blog", foundBlog.Title)
 	s.Equal(s.fixedAuthorID.Hex(), foundBlog.AuthorID)
 	s.Equal([]string{"get"}, foundBlog.Tags)
+	s.Equal(int64(0), foundBlog.CommentsCount, "CommentsCount should be mapped correctly")
 }
 
 // TestGetByID_NotFound asserts that ErrNotFound is returned for a non-existent ID.
@@ -175,11 +177,11 @@ func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 
 	// Arrange: Create a diverse set of blogs to test against.
 	blogsToCreate := []*domain.Blog{
-		{Title: "Golang Basics", AuthorID: author1.Hex(), Tags: []string{"go", "beginner"}, CreatedAt: time.Now().Add(-120 * time.Hour), Views: 100, Likes: 10, Dislikes: 1},    // 0
-		{Title: "Advanced Golang", AuthorID: author1.Hex(), Tags: []string{"go", "advanced"}, CreatedAt: time.Now().Add(-96 * time.Hour), Views: 200, Likes: 20, Dislikes: 2},   // 1
-		{Title: "Intro to Docker", AuthorID: author2.Hex(), Tags: []string{"docker", "devops"}, CreatedAt: time.Now().Add(-72 * time.Hour), Views: 150, Likes: 15, Dislikes: 5}, // 2
-		{Title: "Docker with Go", AuthorID: author2.Hex(), Tags: []string{"docker", "go"}, CreatedAt: time.Now().Add(-48 * time.Hour), Views: 300, Likes: 5, Dislikes: 10},      // 3 (negative score)
-		{Title: "REST APIs", AuthorID: author1.Hex(), Tags: []string{"api", "backend"}, CreatedAt: time.Now().Add(-1 * time.Hour), Views: 50, Likes: 30, Dislikes: 0},           // 4 (newest and high score)
+		{Title: "Golang Basics", AuthorID: author1.Hex(), Tags: []string{"go", "beginner"}, CreatedAt: time.Now().Add(-120 * time.Hour), Views: 100, Likes: 10, Dislikes: 1, CommentsCount: 5},
+		{Title: "Advanced Golang", AuthorID: author1.Hex(), Tags: []string{"go", "advanced"}, CreatedAt: time.Now().Add(-96 * time.Hour), Views: 200, Likes: 20, Dislikes: 2, CommentsCount: 10},
+		{Title: "Intro to Docker", AuthorID: author2.Hex(), Tags: []string{"docker", "devops"}, CreatedAt: time.Now().Add(-72 * time.Hour), Views: 150, Likes: 15, Dislikes: 5, CommentsCount: 8},
+		{Title: "Docker with Go", AuthorID: author2.Hex(), Tags: []string{"docker", "go"}, CreatedAt: time.Now().Add(-48 * time.Hour), Views: 300, Likes: 5, Dislikes: 10, CommentsCount: 2},
+		{Title: "REST APIs", AuthorID: author1.Hex(), Tags: []string{"api", "backend"}, CreatedAt: time.Now().Add(-1 * time.Hour), Views: 50, Likes: 30, Dislikes: 0, CommentsCount: 15},
 	}
 
 	engagementScores := make(map[string]float64)
@@ -188,7 +190,7 @@ func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 		s.Require().NoError(err)
 
 		// Manually calculate and set the engagement score for the test.
-		score := (float64(blog.Likes) * LikeWeight) + (float64(blog.Dislikes) * DislikeWeight) + (float64(blog.Views) * ViewWeight)
+		score := (float64(blog.Likes) * LikeWeight) + (float64(blog.Dislikes) * DislikeWeight) + (float64(blog.Views) * ViewWeight) + (float64(blog.CommentsCount) * CommentWeight)
 		objID, _ := primitive.ObjectIDFromHex(blog.ID)
 		_, err = testDB.Collection(s.collection).UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"engagementScore": score}})
 		s.Require().NoError(err)
@@ -403,6 +405,47 @@ func (s *BlogRepositoryTestSuite) TestIncrementViews() {
 	s.NoError(err)
 	s.Equal(int64(2), updatedBlog.Views, "Views count should be 2 after two increments")
 	s.Equal(2*ViewWeight, updatedBlog.EngagementScore, "Engagement score should be twice the view weight")
+}
+
+func (s *BlogRepositoryTestSuite) TestIncrementCommentCount() {
+	ctx := context.Background()
+	// Arrange: Create a blog with an initial comment count.
+	blog, _ := domain.NewBlog("Title", "Content", s.fixedAuthorID.Hex(), nil)
+	blog.CommentsCount = 3
+	err := s.repo.Create(ctx, blog)
+	s.Require().NoError(err)
+
+	// Update the initial engagement score to match the 3 comments
+	initialScore := 3 * CommentWeight
+	objID, _ := primitive.ObjectIDFromHex(blog.ID)
+	_, err = testDB.Collection(s.collection).UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"engagementScore": initialScore}})
+	s.Require().NoError(err)
+
+	s.Run("Increment", func() {
+		// Act: Increment the comment count by 1.
+		err := s.repo.IncrementCommentCount(ctx, blog.ID, 1)
+		s.NoError(err)
+
+		// Assert: Fetch and verify both fields were updated.
+		var updatedBlog BlogModel
+		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+		s.NoError(err)
+		s.Equal(int64(4), updatedBlog.CommentsCount)
+		s.Equal(initialScore+CommentWeight, updatedBlog.EngagementScore)
+	})
+
+	s.Run("Decrement", func() {
+		// Act: Decrement the comment count by 1.
+		err := s.repo.IncrementCommentCount(ctx, blog.ID, -1)
+		s.NoError(err)
+
+		// Assert: Verify the count is back to the initial state.
+		var updatedBlog BlogModel
+		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+		s.NoError(err)
+		s.Equal(int64(3), updatedBlog.CommentsCount)
+		s.Equal(initialScore, updatedBlog.EngagementScore)
+	})
 }
 
 func (s *BlogRepositoryTestSuite) TestUpdateInteractionCounts() {

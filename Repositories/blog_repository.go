@@ -17,6 +17,7 @@ const (
 	LikeWeight    = 10.0
 	DislikeWeight = -10.0
 	ViewWeight    = 1.0
+	CommentWeight = 25.0
 	// Constant for the Hacker News-style popularity formula.
 	Gravity = 1.8
 )
@@ -30,6 +31,7 @@ type BlogModel struct {
 	Views           int64              `bson:"views"`
 	Likes           int64              `bson:"likes"`
 	Dislikes        int64              `bson:"dislikes"`
+	CommentsCount   int64              `bson:"comments_count"`
 	EngagementScore float64            `bson:"engagementScore"`
 	CreatedAt       time.Time          `bson:"created_at"`
 	UpdatedAt       time.Time          `bson:"updated_at"`
@@ -350,6 +352,34 @@ func (r *blogRepository) IncrementViews(ctx context.Context, blogID string) erro
 	return err // The caller (e.g., a goroutine) can decide what to do with this error.
 }
 
+func (r *blogRepository) IncrementCommentCount(ctx context.Context, blogID string, value int) error {
+	objID, err := primitive.ObjectIDFromHex(blogID)
+	if err != nil {
+		return err
+	}
+
+	filter := bson.M{"_id": objID}
+
+	update := bson.M{
+		"$inc": bson.M{
+			"comments_count":  value,
+			"engagementScore": float64(value) * CommentWeight,
+		},
+	}
+
+	res, err := r.collection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return err
+	}
+
+	// If no document was matched, it means the blog post doesn't exist.
+	if res.MatchedCount == 0 {
+		return usecases.ErrNotFound
+	}
+
+	return nil
+}
+
 func (r *blogRepository) UpdateInteractionCounts(ctx context.Context, blogID string, likesInc, dislikesInc int) error {
 	objID, err := primitive.ObjectIDFromHex(blogID)
 	if err != nil {
@@ -378,16 +408,17 @@ func (r *blogRepository) UpdateInteractionCounts(ctx context.Context, blogID str
 // toBlogDomain converts a persistence model (BlogModel) to a domain entity (Blog).
 func toBlogDomain(model *BlogModel) *domain.Blog {
 	return &domain.Blog{
-		ID:        model.ID.Hex(),
-		Title:     model.Title,
-		Content:   model.Content,
-		AuthorID:  model.AuthorID.Hex(),
-		Tags:      model.Tags,
-		Views:     model.Views,
-		Likes:     model.Likes,
-		Dislikes:  model.Dislikes,
-		CreatedAt: model.CreatedAt,
-		UpdatedAt: model.UpdatedAt,
+		ID:            model.ID.Hex(),
+		Title:         model.Title,
+		Content:       model.Content,
+		AuthorID:      model.AuthorID.Hex(),
+		Tags:          model.Tags,
+		Views:         model.Views,
+		Likes:         model.Likes,
+		Dislikes:      model.Dislikes,
+		CommentsCount: model.CommentsCount,
+		CreatedAt:     model.CreatedAt,
+		UpdatedAt:     model.UpdatedAt,
 	}
 }
 
@@ -407,6 +438,7 @@ func fromBlogDomain(blog *domain.Blog) (*BlogModel, error) {
 		Views:           blog.Views,
 		Likes:           blog.Likes,
 		Dislikes:        blog.Dislikes,
+		CommentsCount:   blog.CommentsCount,
 		EngagementScore: 0,
 		CreatedAt:       blog.CreatedAt,
 		UpdatedAt:       blog.UpdatedAt,

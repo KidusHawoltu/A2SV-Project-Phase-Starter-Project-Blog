@@ -6,16 +6,17 @@ import (
 )
 
 type Blog struct {
-	ID        string
-	Title     string
-	Content   string
-	AuthorID  string
-	Tags      []string
-	Views     int64
-	Likes     int64
-	Dislikes  int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            string
+	Title         string
+	Content       string
+	AuthorID      string
+	Tags          []string
+	Views         int64
+	Likes         int64
+	Dislikes      int64
+	CommentsCount int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type GlobalLogic string
@@ -78,14 +79,15 @@ func NewBlog(title, content string, authorID string, tags []string) (*Blog, erro
 	now := time.Now().UTC()
 
 	return &Blog{
-		Title:     title,
-		Content:   content,
-		AuthorID:  authorID,
-		Tags:      tags,
-		Views:     0, // Initialize views to 0
-		Likes:     0, // Initialize likes to 0
-		Dislikes:  0, // Initialize dislikes to 0
-		CreatedAt: now,
-		UpdatedAt: now,
+		Title:         title,
+		Content:       content,
+		AuthorID:      authorID,
+		Tags:          tags,
+		Views:         0, // Initialize views to 0
+		Likes:         0, // Initialize likes to 0
+		Dislikes:      0, // Initialize dislikes to 0
+		CommentsCount: 0, // Initialize comments to 0
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}, nil
 }
