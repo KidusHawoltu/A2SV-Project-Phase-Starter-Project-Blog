@@ -487,3 +487,4 @@ func (s *BlogControllerTestSuite) TestInteractWithBlog() {
 		mockUsecase.AssertExpectations(s.T())
 	})
 }
+

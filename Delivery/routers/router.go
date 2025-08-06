@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// SetupRouter sets up the main router with both auth/profile and blog routes
+// SetupRouter sets up all API routes for the blog platform
 func SetupRouter(
 	userController *controllers.UserController,
 	blogController *controllers.BlogController,
@@ -22,18 +22,35 @@ func SetupRouter(
 	// Auth Routes (Public)
 	// ---------------------
 	auth := apiV1.Group("/auth")
-	auth.POST("/register", userController.Register)
-	auth.POST("/login", userController.Login)
+	{
+		auth.POST("/register", userController.Register)
+		auth.GET("/activate", userController.ActivateAccount)
+		auth.POST("/login", userController.Login)
+		auth.POST("/refresh", userController.RefreshToken)
+		auth.POST("/logout", userController.Logout)
+	}
+
+	// -------------------------
+	// Password Routes (Public)
+	// -------------------------
+	password := apiV1.Group("/password")
+	{
+		password.POST("/forget", userController.ForgetPassword)
+		password.POST("/reset", userController.ResetPassword)
+	}
 
 	// ------------------------
 	// Profile Routes (Private)
 	// ------------------------
 	profile := apiV1.Group("/profile")
 	profile.Use(infrastructure.AuthMiddleware(jwtService))
-	profile.GET("", userController.GetProfile)
+	{
+		profile.GET("", userController.GetProfile)
+		profile.PUT("", userController.UpdateProfile)
+	}
 
 	// ------------------------
-	// Blog Routes (Protected)
+	// Blog Routes (Mixed)
 	// ------------------------
 	publicBlogs := apiV1.Group("/blogs")
 	{

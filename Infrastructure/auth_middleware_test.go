@@ -17,7 +17,7 @@ func TestAuthMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	// Setup a real JWT service
-	jwtService := infrastructure.NewJWTService("test-secret", "test-issuer", 1*time.Minute)
+	jwtService := infrastructure.NewJWTService("test-secret", "test-issuer", 1*time.Minute,24*time.Hour)
 
 	// Create a test user ID and role
 	userID := "user-abc-123"
@@ -35,7 +35,17 @@ func TestAuthMiddleware(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedBody:   `{"userID":"user-abc-123","userRole":"user"}`,
 			setupRequest: func(req *http.Request) {
-				token, _ := jwtService.GenerateAccessToken(userID, userRole)
+				token, _, _:= jwtService.GenerateAccessToken(userID, userRole)
+				req.Header.Set("Authorization", "Bearer "+token)
+			},
+		},
+		{
+			name:           "Failure - Expired Token",
+			expectedStatus: http.StatusUnauthorized,
+			expectedBody:   `{"error":"Invalid or expired token"}`,
+			setupRequest: func(req *http.Request) {
+				expiredService := infrastructure.NewJWTService("test-secret", "test-issuer", -1*time.Minute, 24*time.Hour)
+				token, _, _ := expiredService.GenerateAccessToken(userID, userRole)
 				req.Header.Set("Authorization", "Bearer "+token)
 			},
 		},
@@ -58,8 +68,8 @@ func TestAuthMiddleware(t *testing.T) {
 			expectedStatus: http.StatusUnauthorized,
 			expectedBody:   `{"error":"Invalid or expired token"}`,
 			setupRequest: func(req *http.Request) {
-				otherJwtService := infrastructure.NewJWTService("wrong-secret", "test-issuer", 1*time.Minute)
-				token, _ := otherJwtService.GenerateAccessToken(userID, userRole)
+				otherJwtService := infrastructure.NewJWTService("wrong-secret", "test-issuer", 1*time.Minute, 24*time.Hour)
+				token, _, _:= otherJwtService.GenerateAccessToken(userID, userRole)
 				req.Header.Set("Authorization", "Bearer "+token)
 			},
 		},

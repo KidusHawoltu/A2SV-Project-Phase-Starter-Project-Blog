@@ -3,12 +3,13 @@ package main
 import (
 	"A2SV_Starter_Project_Blog/Delivery/controllers"
 	"A2SV_Starter_Project_Blog/Delivery/routers"
-	"A2SV_Starter_Project_Blog/Infrastructure"
-	"A2SV_Starter_Project_Blog/Repositories"
-	"A2SV_Starter_Project_Blog/Usecases"
+	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
+	repositories "A2SV_Starter_Project_Blog/Repositories"
+	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -17,35 +18,36 @@ import (
 )
 
 func main() {
-	// Load .env file
-	if err := godotenv.Load(".env"); err != nil {
+	// Load .env file from current or parent directory
+	if err := godotenv.Load(); err != nil {
 		if err := godotenv.Load("../.env"); err != nil {
 			log.Println("No .env file found, proceeding with environment defaults...")
 		}
 	}
 
-	// Configurations
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017"
-	}
+	// --- Environment Config ---
+	mongoURI := getEnv("MONGO_URI", "mongodb://localhost:27017")
+	dbName := getEnv("DB_NAME", "g6-blog-db")
+	serverPort := getEnv("PORT", "8080")
 
-	dbName := os.Getenv("DB_NAME")
-	if dbName == "" {
-		dbName = "g6-blog-db"
-	}
-
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "a-very-secret-key-that-should-be-long-and-random"
-	}
-
+	// JWT settings
+	jwtSecret := getEnv("JWT_SECRET", "a-very-secret-key-that-should-be-long-and-random")
 	jwtIssuer := "g6-blog-api"
-	jwtTTL := 15 * time.Minute
-	serverPort := os.Getenv("PORT")
-	if serverPort == "" {
-		serverPort = "8080"
+	accessTTL, _ := strconv.Atoi(getEnv("JWT_ACCESS_TTL_MIN", "15"))
+	refreshTTL, _ := strconv.Atoi(getEnv("JWT_REFRESH_TTL_HR", "72"))
+	jwtAccessTTL := time.Duration(accessTTL) * time.Minute
+	jwtRefreshTTL := time.Duration(refreshTTL) * time.Hour
+
+	// Usecase timeout
+	usecaseTimeout := 5 * time.Second
+
+	// Gemini AI settings
+	geminiApiKey := getEnv("GEMINI_API_KEY", "")
+	geminiModel := getEnv("GEMINI_MODEL", "gemini-2.5-pro")
+	if geminiApiKey == "" {
+		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
 	}
+
 	geminiModel := os.Getenv("GEMINI_MODEL")
 	if geminiModel == "" {
 		geminiModel = "gemini-2.5-pro"
@@ -56,40 +58,47 @@ func main() {
 	}
 	usecaseTimeout := 5 * time.Second
 
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-	defer cancel()
+	// SMTP email settings
+	smtpHost := getEnv("SMTP_HOST", "smtp.mailtrap.io")
+	smtpPort, _ := strconv.Atoi(getEnv("SMTP_PORT", "2525"))
+	smtpUser := getEnv("SMTP_USER", "")
+	smtpPass := getEnv("SMTP_PASSWORD", "")
+	smtpFrom := getEnv("SMTP_FROM_EMAIL", "no-reply@example.com")
 
 	// --- MongoDB Setup ---
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(mongoURI))
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		log.Fatalf("Failed to connect to MongoDB (ping failed): %v", err)
+	if err := client.Ping(ctx, nil); err != nil {
+		log.Fatalf("MongoDB ping failed: %v", err)
 	}
-
 	defer client.Disconnect(context.Background())
 	db := client.Database(dbName)
 
 	log.Println("MongoDB connected.")
 
-	// --- Infrastructure Setup ---
+	// --- Infrastructure Services ---
 	passwordService := infrastructure.NewPasswordService()
-	jwtService := infrastructure.NewJWTService(jwtSecret, jwtIssuer, jwtTTL)
+	jwtService := infrastructure.NewJWTService(jwtSecret, jwtIssuer, jwtAccessTTL, jwtRefreshTTL)
+	emailService := infrastructure.NewSMTPEmailService(smtpHost, smtpPort, smtpUser, smtpPass, smtpFrom)
 	aiService, err := infrastructure.NewGeminiAIService(geminiApiKey, geminiModel)
 	if err != nil {
-		log.Printf("ERROR: Failed to initialize AI service: %v. AI features will be unavailable.", err)
+		log.Printf("WARN: Failed to initialize AI service: %v. AI features will be unavailable.", err)
 	}
 
 	// --- Repositories ---
 	userRepo := repositories.NewMongoUserRepository(db, "users")
+	tokenRepo := repositories.NewMongoTokenRepository(db, "tokens")
 	blogRepo := repositories.NewBlogRepository(db.Collection("blogs"))
 	interactionRepo := repositories.NewInteractionRepository(db.Collection("interactions"))
 
 	// --- Usecases ---
-	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, usecaseTimeout)
+	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, usecaseTimeout)
 	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
 	aiUsecase := usecases.NewAIUsecase(aiService)
 
@@ -98,11 +107,20 @@ func main() {
 	blogController := controllers.NewBlogController(blogUsecase)
 	aiController := controllers.NewAIController(aiUsecase)
 
-	// --- Setup Router ---
+
+	// --- Router ---
 	router := routers.SetupRouter(userController, blogController, aiController, jwtService)
 
 	log.Printf("Server starting on port %s...", serverPort)
 	if err := router.Run(":" + serverPort); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
+}
+
+// getEnv returns the env var value or a fallback if not set
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }

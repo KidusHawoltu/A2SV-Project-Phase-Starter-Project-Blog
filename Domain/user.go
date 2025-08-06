@@ -21,6 +21,7 @@ type User struct{
 	Username 				string
 	Password 				string
 	Email 					string
+	IsActive        bool
 	Role 						Role
 	Bio 						string
 	ProfilePicture 	string
