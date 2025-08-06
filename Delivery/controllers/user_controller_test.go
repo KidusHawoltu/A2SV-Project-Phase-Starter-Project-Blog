@@ -50,20 +50,20 @@ func (m *MockUserUsecase) UpdateProfile(ctx context.Context, userID, bio, profil
 	if args.Get(0) == nil { return nil, args.Error(1) }
 	return args.Get(0).(*domain.User), args.Error(1)
 }
-func (m *MockUserUsecase) GetProfile(ctx context.Context, userID string) (*domain.User, error) {
-	args := m.Called(ctx, userID)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*domain.User), args.Error(1)
-}
 func (m *MockUserUsecase) ActivateAccount(ctx context.Context, token string) error {
 	args := m.Called(ctx, token)
 	return args.Error(0)
 }
 
-// --- ROUTER SETUP HELPER ---
-func setupRouter(uc usecases.UserUsecase) *gin.Engine {
+func (m *MockUserUsecase) GetProfile(ctx context.Context, userID string) (*domain.User, error) {
+	args := m.Called(ctx, userID)
+	if args.Get(0) == nil { return  nil, args.Error(1)}
+	return args.Get(0).(*domain.User), args.Error(1)
+
+}
+
+// --- USER ROUTER SETUP HELPER ---
+func setupUserRouter(uc usecases.UserUsecase) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	userController := controllers.NewUserController(uc)
@@ -76,23 +76,19 @@ func setupRouter(uc usecases.UserUsecase) *gin.Engine {
 		auth.POST("/logout", userController.Logout)
 		auth.POST("/refresh", userController.RefreshToken)
 	}
-
 	password := router.Group("/password")
 	{
 		password.POST("/forgot", userController.ForgetPassword)
 		password.POST("/reset", userController.ResetPassword)
 	}
-	
 	profile := router.Group("/profile")
 	{
-		// Dummy middleware for testing protected routes
 		profile.Use(func(c *gin.Context) {
 			c.Set("userID", "test-user-id")
 			c.Next()
 		})
 		profile.PUT("", userController.UpdateProfile)
 	}
-
 	return router
 }
 
@@ -100,7 +96,7 @@ func setupRouter(uc usecases.UserUsecase) *gin.Engine {
 
 func TestUserController_Register(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
-	router := setupRouter(mockUsecase)
+	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		reqPayload := controllers.RegisterRequest{Username: "test", Email: "test@test.com", Password: "password123"}
@@ -138,7 +134,7 @@ func TestUserController_Register(t *testing.T) {
 
 func TestUserController_Login(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
-	router := setupRouter(mockUsecase)
+	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		reqPayload := controllers.LoginRequest{Email: "test@test.com", Password: "password123"}
@@ -160,7 +156,7 @@ func TestUserController_Login(t *testing.T) {
 
 func TestUserController_Logout(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
-	router := setupRouter(mockUsecase)
+	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		reqPayload := controllers.LogoutRequest{RefreshToken: "valid.refresh.token"}
@@ -180,7 +176,7 @@ func TestUserController_Logout(t *testing.T) {
 
 func TestUserController_RefreshToken(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
-	router := setupRouter(mockUsecase)
+	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		reqPayload := controllers.RefreshRequest{AccessToken: "old.access", RefreshToken: "old.refresh"}
@@ -201,7 +197,7 @@ func TestUserController_RefreshToken(t *testing.T) {
 
 func TestUserController_ForgotPassword(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
-	router := setupRouter(mockUsecase)
+	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		reqPayload := controllers.ForgetPasswordRequest{Email: "user@example.com"}
@@ -221,7 +217,7 @@ func TestUserController_ForgotPassword(t *testing.T) {
 
 func TestUserController_ResetPassword(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
-	router := setupRouter(mockUsecase)
+	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		reqPayload := controllers.ResetPasswordRequest{Token: "valid.token", NewPassword: "new-password123"}
@@ -241,7 +237,7 @@ func TestUserController_ResetPassword(t *testing.T) {
 
 func TestUserController_ActivateAccount(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
-	router := setupRouter(mockUsecase)
+	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		mockUsecase.On("ActivateAccount", mock.Anything, "valid.token").Return(nil).Once()
@@ -258,7 +254,7 @@ func TestUserController_ActivateAccount(t *testing.T) {
 
 func TestUserController_UpdateProfile(t *testing.T) {
 	mockUsecase := new(MockUserUsecase)
-	router := setupRouter(mockUsecase)
+	router := setupUserRouter(mockUsecase)
 
 	t.Run("Success", func(t *testing.T) {
 		reqPayload := controllers.UpdateProfileRequest{Bio: "new bio", ProfilePicURL: "new.url"}
