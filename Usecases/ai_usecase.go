@@ -7,19 +7,25 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 )
 
 type AIUsecase struct {
-	aiService domain.IAIService
+	aiService      domain.IAIService
+	contextTimeout time.Duration
 }
 
-func NewAIUsecase(aiService domain.IAIService) domain.IAIUsecase {
+func NewAIUsecase(aiService domain.IAIService, timeOut time.Duration) domain.IAIUsecase {
 	return &AIUsecase{
-		aiService: aiService,
+		aiService:      aiService,
+		contextTimeout: timeOut,
 	}
 }
 
 func (ai *AIUsecase) GenerateBlogIdeas(ctx context.Context, keywords []string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, ai.contextTimeout)
+	defer cancel()
+
 	// 1. Validate input
 	if len(keywords) == 0 {
 		return nil, domain.ErrValidation
@@ -58,6 +64,9 @@ func (ai *AIUsecase) GenerateBlogIdeas(ctx context.Context, keywords []string) (
 }
 
 func (ai *AIUsecase) RefineBlogPost(ctx context.Context, content string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, ai.contextTimeout)
+	defer cancel()
+
 	// 1. Validate input
 	if strings.TrimSpace(content) == "" {
 		return "", domain.ErrValidation

@@ -103,7 +103,7 @@ func main() {
 	// --- Usecases ---
 	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, usecaseTimeout)
 	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
-	aiUsecase := usecases.NewAIUsecase(aiService)
+	aiUsecase := usecases.NewAIUsecase(aiService, 5*usecaseTimeout)
 	commentUsecase := usecases.NewCommentUsecase(blogRepo, commentRepo, usecaseTimeout)
 	oauthUsecase := usecases.NewOAuthUsecase(userRepo, tokenRepo, jwtService, googleOAuth2Service, usecaseTimeout)
 
