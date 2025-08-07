@@ -48,6 +48,14 @@ func main() {
 		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
 	}
 
+	// Google OAuth2 Credentials
+	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
+	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	googleRedirectURI := os.Getenv("GOOGLE_REDIRECT_URI")
+	if googleClientID == "" || googleClientSecret == "" {
+		log.Println("WARN: Google OAuth credentials are not set. Sign in with Google will fail.")
+	}
+
 	// SMTP email settings
 	smtpHost := getEnv("SMTP_HOST", "smtp.mailtrap.io")
 	smtpPort, _ := strconv.Atoi(getEnv("SMTP_PORT", "2525"))
@@ -80,6 +88,10 @@ func main() {
 	if err != nil {
 		log.Printf("WARN: Failed to initialize AI service: %v. AI features will be unavailable.", err)
 	}
+	googleOAuth2Service, err := infrastructure.NewGoogleOAuthService(googleClientID, googleClientSecret, googleRedirectURI)
+	if err != nil {
+		log.Println("WARN: Google OAuth credentials are not set. Sign in with Google will fail.", err)
+	}
 
 	// --- Repositories ---
 	userRepo := repositories.NewMongoUserRepository(db, "users")
@@ -93,15 +105,17 @@ func main() {
 	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
 	aiUsecase := usecases.NewAIUsecase(aiService)
 	commentUsecase := usecases.NewCommentUsecase(blogRepo, commentRepo, usecaseTimeout)
+	oauthUsecase := usecases.NewOAuthUsecase(userRepo, tokenRepo, jwtService, googleOAuth2Service, usecaseTimeout)
 
 	// --- Controllers ---
 	userController := controllers.NewUserController(userUsecase)
 	blogController := controllers.NewBlogController(blogUsecase)
 	aiController := controllers.NewAIController(aiUsecase)
 	commentController := controllers.NewCommentController(commentUsecase)
+	oauthController := controllers.NewOAuthController(oauthUsecase)
 
 	// --- Setup Router ---
-	router := routers.SetupRouter(userController, blogController, aiController, commentController, jwtService)
+	router := routers.SetupRouter(userController, blogController, aiController, commentController, oauthController, jwtService)
 
 	log.Printf("Server starting on port %s...", serverPort)
 	if err := router.Run(":" + serverPort); err != nil {

@@ -19,11 +19,12 @@ var (
 	ErrUserNotFound         = errors.New("user not found")
 	ErrPermissionDenied     = errors.New("permission denied")
 	ErrUsernameExists       = errors.New("username already exists")
+	ErrOAuthUser            = errors.New("this action is not applicable to an account created with an external provider")
 
 	// Token errors
-	ErrInvalidID                = errors.New("invalid ID was used")
-	ErrInvalidResetToken        = errors.New("invalid or expired password reset token")
-	ErrCannotDemoteSelf         = errors.New("admin cannot demote themselves")
-	ErrAccountNotActive         = errors.New("this account has not been activated")
-	ErrInvalidActivationToken   = errors.New("invalid or expired activation token")
+	ErrInvalidID              = errors.New("invalid ID was used")
+	ErrInvalidResetToken      = errors.New("invalid or expired password reset token")
+	ErrCannotDemoteSelf       = errors.New("admin cannot demote themselves")
+	ErrAccountNotActive       = errors.New("this account has not been activated")
+	ErrInvalidActivationToken = errors.New("invalid or expired activation token")
 )

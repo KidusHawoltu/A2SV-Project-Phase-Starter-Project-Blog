@@ -13,6 +13,7 @@ func SetupRouter(
 	blogController *controllers.BlogController,
 	aiController *controllers.AIController,
 	commentController *controllers.CommentController,
+	oauthController *controllers.OAuthController,
 	jwtService infrastructure.JWTService,
 ) *gin.Engine {
 
@@ -29,6 +30,11 @@ func SetupRouter(
 		auth.POST("/login", userController.Login)
 		auth.POST("/refresh", userController.RefreshToken)
 		auth.POST("/logout", userController.Logout)
+
+		google := auth.Group("/google")
+		{
+			google.POST("/callback", oauthController.HandleGoogleCallback)
+		}
 	}
 
 	// -------------------------

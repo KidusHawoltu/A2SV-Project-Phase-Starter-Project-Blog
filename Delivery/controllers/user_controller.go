@@ -79,10 +79,11 @@ func (ctrl *UserController) Register(c *gin.Context) {
 		return
 	}
 
+	password := req.Password
 	user := &domain.User{
 		Username: req.Username,
 		Email:    req.Email,
-		Password: req.Password,
+		Password: &password,
 		Role:     domain.RoleUser,
 	}
 
