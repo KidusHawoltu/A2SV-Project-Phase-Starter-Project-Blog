@@ -8,38 +8,23 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/suite"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // TokenRepositorySuite defines the test suite
 type TokenRepositorySuite struct {
 	suite.Suite
-	client     *mongo.Client
-	db         *mongo.Database
 	collection *mongo.Collection
 	repository usecases.TokenRepository
 }
 
 // SetupSuite runs once before all tests in the suite
 func (s *TokenRepositorySuite) SetupSuite() {
-	clientOpts := options.Client().ApplyURI("mongodb://localhost:27017")
-	client, err := mongo.Connect(context.Background(), clientOpts)
-	s.Require().NoError(err, "Failed to connect to MongoDB")
-
-	s.client = client
-	s.db = client.Database("g6_blog_test_tokens") // Use a dedicated test database
-	s.collection = s.db.Collection("tokens")
-	s.repository = repositories.NewMongoTokenRepository(s.db, "tokens")
-}
-
-// TearDownSuite runs once after all tests are done
-func (s *TokenRepositorySuite) TearDownSuite() {
-	s.Require().NoError(s.db.Drop(context.Background()), "Failed to drop test database")
-	s.client.Disconnect(context.Background())
+	s.collection = testDB.Collection("tokens_test")
+	s.repository = repositories.NewMongoTokenRepository(testDB, "tokens_test")
 }
 
 // SetupTest runs before each individual test function
@@ -58,7 +43,7 @@ func TestTokenRepositorySuite(t *testing.T) {
 func (s *TokenRepositorySuite) TestStore() {
 	ctx := context.Background()
 	token := &domain.Token{
-		ID:        uuid.NewString(),
+		ID:        primitive.NewObjectID().Hex(),
 		UserID:    "user-123",
 		Type:      domain.TokenTypeRefresh,
 		Value:     "a-unique-refresh-token",
@@ -81,7 +66,7 @@ func (s *TokenRepositorySuite) TestGetByValue() {
 	ctx := context.Background()
 	// Arrange: Pre-insert a token to find
 	token := &domain.Token{
-		ID:        uuid.NewString(),
+		ID:        primitive.NewObjectID().Hex(),
 		UserID:    "user-456",
 		Type:      domain.TokenTypePasswordReset,
 		Value:     "a-findable-token",
@@ -118,7 +103,7 @@ func (s *TokenRepositorySuite) TestDelete() {
 	ctx := context.Background()
 	// Arrange: Store a token to be deleted
 	token := &domain.Token{
-		ID:    uuid.NewString(),
+		ID:    primitive.NewObjectID().Hex(),
 		Value: "token-to-delete",
 	}
 	err := s.repository.Store(ctx, token)
@@ -137,8 +122,8 @@ func (s *TokenRepositorySuite) TestDelete() {
 
 	s.Run("Failure - Delete Non-Existent Token", func() {
 		// Act
-		err := s.repository.Delete(ctx, uuid.NewString())
-		
+		err := s.repository.Delete(ctx, primitive.NewObjectID().Hex())
+
 		// Assert: Your implementation returns a custom error
 		s.Require().Error(err)
 		s.Equal("token not found", err.Error())
@@ -148,22 +133,22 @@ func (s *TokenRepositorySuite) TestDelete() {
 func (s *TokenRepositorySuite) TestDeleteByUserID() {
 	ctx := context.Background()
 	// Arrange: Store multiple tokens for multiple users
-	s.repository.Store(ctx, &domain.Token{ID: uuid.NewString(), UserID: "user-abc", Type: domain.TokenTypeRefresh, Value: "abc-refresh-1"})
-	s.repository.Store(ctx, &domain.Token{ID: uuid.NewString(), UserID: "user-abc", Type: domain.TokenTypeRefresh, Value: "abc-refresh-2"})
-	s.repository.Store(ctx, &domain.Token{ID: uuid.NewString(), UserID: "user-abc", Type: domain.TokenTypeActivation, Value: "abc-activation"})
-	s.repository.Store(ctx, &domain.Token{ID: uuid.NewString(), UserID: "user-xyz", Type: domain.TokenTypeRefresh, Value: "xyz-refresh"})
-	
+	s.repository.Store(ctx, &domain.Token{ID: primitive.NewObjectID().Hex(), UserID: "user-abc", Type: domain.TokenTypeRefresh, Value: "abc-refresh-1"})
+	s.repository.Store(ctx, &domain.Token{ID: primitive.NewObjectID().Hex(), UserID: "user-abc", Type: domain.TokenTypeRefresh, Value: "abc-refresh-2"})
+	s.repository.Store(ctx, &domain.Token{ID: primitive.NewObjectID().Hex(), UserID: "user-abc", Type: domain.TokenTypeActivation, Value: "abc-activation"})
+	s.repository.Store(ctx, &domain.Token{ID: primitive.NewObjectID().Hex(), UserID: "user-xyz", Type: domain.TokenTypeRefresh, Value: "xyz-refresh"})
+
 	// Act
 	err := s.repository.DeleteByUserID(ctx, "user-abc", domain.TokenTypeRefresh)
 	s.Require().NoError(err)
-	
+
 	// Assert: Check the state of the database
 	var count int64
-	
+
 	// Tokens for user-abc of type refresh should be gone
 	count, _ = s.collection.CountDocuments(ctx, bson.M{"user_id": "user-abc", "type": domain.TokenTypeRefresh})
 	s.Equal(int64(0), count, "Refresh tokens for user-abc should have been deleted")
-	
+
 	// Activation token for user-abc should still exist
 	count, _ = s.collection.CountDocuments(ctx, bson.M{"user_id": "user-abc", "type": domain.TokenTypeActivation})
 	s.Equal(int64(1), count, "Activation token for user-abc should not have been deleted")

@@ -84,8 +84,6 @@ func (ctrl *UserController) Register(c *gin.Context) {
 		Email:    req.Email,
 		Password: req.Password,
 		Role:     domain.RoleUser,
-		Role:     domain.RoleUser, // Default role
-
 	}
 
 	err := ctrl.userUsecase.Register(c.Request.Context(), user)
@@ -101,9 +99,8 @@ func (ctrl *UserController) Register(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully"})
+	c.JSON(http.StatusCreated, gin.H{"message": "User registered successfully", "id": user.ID})
 }
-
 
 func (ctrl *UserController) ActivateAccount(c *gin.Context) {
 	token := c.Query("token")
@@ -133,13 +130,11 @@ func (ctrl *UserController) Login(c *gin.Context) {
 		return
 	}
 
-
 	//validate that at least one identifier is provided.
 	if req.Username == "" && req.Email == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "email or username is required"})
 		return
 	}
-
 
 	// prefer email if both are provided
 
@@ -154,10 +149,8 @@ func (ctrl *UserController) Login(c *gin.Context) {
 		return
 	}
 
-
 	c.JSON(http.StatusOK, gin.H{"access_token": accessToken, "refresh_token": refreshToken})
 }
-
 
 func (ctrl *UserController) GetProfile(c *gin.Context) {
 	userID, exists := c.Get("userID")
@@ -165,7 +158,6 @@ func (ctrl *UserController) GetProfile(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in token"})
 		return
 	}
-
 
 	user, err := ctrl.userUsecase.GetProfile(c.Request.Context(), userID.(string))
 	if err != nil {
@@ -227,7 +219,7 @@ func (ctrl *UserController) ForgetPassword(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "If an account with that email exists, a reset link has been sent."})
+	c.JSON(http.StatusOK, gin.H{"message": "a password reset link has been sent"})
 }
 
 func (ctrl *UserController) ResetPassword(c *gin.Context) {
@@ -249,7 +241,7 @@ func (ctrl *UserController) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Password reset successfully"})
+	c.JSON(http.StatusOK, gin.H{"message": "password has been reset successfully"})
 }
 
 func (ctrl *UserController) UpdateProfile(c *gin.Context) {

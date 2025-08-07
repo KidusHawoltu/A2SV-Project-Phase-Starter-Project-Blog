@@ -19,6 +19,7 @@ type UserRepository interface {
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
+	FindUserIDsByName(ctx context.Context, authorName string) ([]string, error)
 }
 
 type TokenRepository interface {
@@ -26,7 +27,6 @@ type TokenRepository interface {
 	GetByValue(ctx context.Context, tokenValue string) (*domain.Token, error)
 	Delete(ctx context.Context, tokenID string) error
 	DeleteByUserID(ctx context.Context, userID string, tokenType domain.TokenType) error
-	FindUserIDsByName(ctx context.Context, authorName string) ([]string, error)
 }
 type UserUsecase interface {
 	Register(ctx context.Context, user *domain.User) error
@@ -53,7 +53,7 @@ type userUsecase struct {
 	contextTimeout  time.Duration
 }
 
-func NewUserUsecase(ur UserRepository, ps infrastructure.PasswordService, js infrastructure.JWTService, tr TokenRepository,es infrastructure.EmailService, timeout time.Duration) UserUsecase {
+func NewUserUsecase(ur UserRepository, ps infrastructure.PasswordService, js infrastructure.JWTService, tr TokenRepository, es infrastructure.EmailService, timeout time.Duration) UserUsecase {
 	return &userUsecase{
 		userRepo:        ur,
 		tokenRepo:       tr,
@@ -111,13 +111,13 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 	return uc.emailService.SendActivationEmail(user.Email, user.Username, activationToken.Value)
 }
 
-func(uc *userUsecase) ActivateAccount(c context.Context, activationTokenValue string) error {
+func (uc *userUsecase) ActivateAccount(c context.Context, activationTokenValue string) error {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
 	activationToken, err := uc.tokenRepo.GetByValue(ctx, activationTokenValue)
 	if err != nil || activationToken == nil || activationToken.IsExpired() || activationToken.Type != domain.TokenTypeActivation {
-		return domain.ErrInvalidActivationToken 
+		return domain.ErrInvalidActivationToken
 	}
 
 	user, err := uc.userRepo.GetByID(ctx, activationToken.UserID)
@@ -143,7 +143,6 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 
 	var user *domain.User
 	var err error
-
 	if _, mailErr := mail.ParseAddress(identifier); mailErr == nil {
 		user, err = uc.userRepo.GetByEmail(ctx, identifier)
 	} else {
@@ -151,36 +150,36 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 	}
 
 	if err != nil {
-		return "","", err
+		return "", "", err
 	}
 	if user == nil {
-		return  "", "", domain.ErrAuthenticationFailed //user not found
+		return "", "", domain.ErrAuthenticationFailed //user not found
 	}
 
 	if !user.IsActive {
-		return "","", domain.ErrAccountNotActive
+		return "", "", domain.ErrAccountNotActive
 	}
 
-	err = uc.passwordService.ComparePassword(user.Password, password) 
+	err = uc.passwordService.ComparePassword(user.Password, password)
 	if err != nil {
-		return "","",domain.ErrAuthenticationFailed
+		return "", "", domain.ErrAuthenticationFailed
 	}
 
 	// Generate and return access token
 	accessTokenString, accessClaims, err := uc.jwtService.GenerateAccessToken(user.ID, user.Role)
 	if err != nil {
-		return "","", err
+		return "", "", err
 	}
 	refreshTokenString, refreshClaims, err := uc.jwtService.GenerateRefreshToken(user.ID)
 	if err != nil {
-		return "","", err
+		return "", "", err
 	}
 
 	accessToken := &domain.Token{
-		ID: accessClaims.ID,
-		UserID: user.ID,
-		Type: domain.TokenTypeAccessToken,
-		Value: accessTokenString,
+		ID:        accessClaims.ID,
+		UserID:    user.ID,
+		Type:      domain.TokenTypeAccessToken,
+		Value:     accessTokenString,
 		ExpiresAt: accessClaims.ExpiresAt.Time,
 	}
 
@@ -189,14 +188,14 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 	}
 
 	refreshToken := &domain.Token{
-		ID: refreshClaims.ID,
-		UserID: user.ID,
-		Type: domain.TokenTypeRefresh,
-		Value: refreshTokenString,
-		ExpiresAt:refreshClaims.ExpiresAt.Time,
+		ID:        refreshClaims.ID,
+		UserID:    user.ID,
+		Type:      domain.TokenTypeRefresh,
+		Value:     refreshTokenString,
+		ExpiresAt: refreshClaims.ExpiresAt.Time,
 	}
 	if err := uc.tokenRepo.Store(ctx, refreshToken); err != nil {
-		return "","",err
+		return "", "", err
 	}
 
 	return accessTokenString, refreshTokenString, nil
@@ -210,7 +209,7 @@ func (uc *userUsecase) Logout(c context.Context, refreshToken string) error {
 
 	token, err := uc.tokenRepo.GetByValue(ctx, refreshToken)
 	if err != nil || token == nil || token.Type != domain.TokenTypeRefresh {
-		return nil  // Do not leak info. Act as if logout was successful.
+		return nil // Do not leak info. Act as if logout was successful.
 	}
 
 	return uc.tokenRepo.Delete(ctx, token.ID)
@@ -235,7 +234,7 @@ func (uc *userUsecase) RefreshAccessToken(c context.Context, refreshToken, acces
 	if err != nil || dbAccessToken == nil {
 		uc.tokenRepo.DeleteByUserID(ctx, dbRefreshToken.UserID, domain.TokenTypeRefresh)
 		uc.tokenRepo.DeleteByUserID(ctx, dbAccessToken.UserID, domain.TokenTypeAccessToken)
-		return "","",domain.ErrAuthenticationFailed
+		return "", "", domain.ErrAuthenticationFailed
 	}
 
 	if dbRefreshToken.UserID != AccessClaims.UserID || dbAccessToken.UserID != dbRefreshToken.UserID {
@@ -260,20 +259,20 @@ func (uc *userUsecase) ForgetPassword(c context.Context, email string) error {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
-	user, err:= uc.userRepo.GetByEmail(ctx, email)
-	if err != nil || user == nil{
-		return nil  // Prevent email enumeration attacks.
+	user, err := uc.userRepo.GetByEmail(ctx, email)
+	if err != nil || user == nil {
+		return nil // Prevent email enumeration attacks.
 	}
 
 	// Delete previous reset tokens for this user.
-	if err := uc.tokenRepo.DeleteByUserID(ctx, user.ID,domain.TokenTypePasswordReset); err != nil {
+	if err := uc.tokenRepo.DeleteByUserID(ctx, user.ID, domain.TokenTypePasswordReset); err != nil {
 		return err
 	}
 	resetToken := &domain.Token{
-		ID: uuid.NewString(),
-		UserID: user.ID,
-		Type: domain.TokenTypePasswordReset,
-		Value: uuid.NewString(),
+		ID:        uuid.NewString(),
+		UserID:    user.ID,
+		Type:      domain.TokenTypePasswordReset,
+		Value:     uuid.NewString(),
 		ExpiresAt: time.Now().Add(15 * time.Minute),
 	}
 
@@ -290,7 +289,7 @@ func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPass
 	defer cancel()
 
 	resetToken, err := uc.tokenRepo.GetByValue(ctx, resetTokenValue)
-	if err != nil || resetToken == nil || resetToken.Type!= domain.TokenTypePasswordReset || resetToken.IsExpired() {
+	if err != nil || resetToken == nil || resetToken.Type != domain.TokenTypePasswordReset || resetToken.IsExpired() {
 		return domain.ErrInvalidResetToken
 	}
 
@@ -358,33 +357,33 @@ func (uc *userUsecase) generateAndStoreTokenPair(ctx context.Context, user *doma
 		return "", "", err
 	}
 
-	accessTokenModel := &domain.Token {
-		ID: accessClaims.ID,
-		UserID: user.ID,
-		Type: domain.TokenTypeAccessToken,
-		Value: accessToken,
+	accessTokenModel := &domain.Token{
+		ID:        accessClaims.ID,
+		UserID:    user.ID,
+		Type:      domain.TokenTypeAccessToken,
+		Value:     accessToken,
 		ExpiresAt: accessClaims.ExpiresAt.Time,
 	}
 
-	if err := uc.tokenRepo.Store(ctx,accessTokenModel); err != nil {
+	if err := uc.tokenRepo.Store(ctx, accessTokenModel); err != nil {
 		return "", "", err
 	}
 
 	// Refresh token
 	refreshToken, refreshClaims, err := uc.jwtService.GenerateRefreshToken(user.ID)
 	if err != nil {
-		return "","", err
+		return "", "", err
 	}
-	refreshTokenModel := &domain.Token {
-		ID: refreshClaims.ID,
-		UserID: user.ID,
-		Type: domain.TokenTypeRefresh,
-		Value: refreshToken,
+	refreshTokenModel := &domain.Token{
+		ID:        refreshClaims.ID,
+		UserID:    user.ID,
+		Type:      domain.TokenTypeRefresh,
+		Value:     refreshToken,
 		ExpiresAt: refreshClaims.ExpiresAt.Time,
 	}
 
 	if err := uc.tokenRepo.Store(ctx, refreshTokenModel); err != nil {
-		return "","", err
+		return "", "", err
 	}
 
 	return accessToken, refreshToken, nil

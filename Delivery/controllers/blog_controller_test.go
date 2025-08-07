@@ -149,7 +149,7 @@ func (s *BlogControllerTestSuite) TestGetByID() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.GET("/blogs/:id", controller.GetByID)
+		router.GET("/blogs/:blogID", controller.GetByID)
 
 		mockBlog, _ := domain.NewBlog("Found Title", "Found Content", "author-id", nil)
 		mockBlog.ID = "found-id"
@@ -171,7 +171,7 @@ func (s *BlogControllerTestSuite) TestGetByID() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.GET("/blogs/:id", controller.GetByID)
+		router.GET("/blogs/:blogID", controller.GetByID)
 
 		mockUsecase.On("GetByID", mock.Anything, "not-found-id").Return(nil, usecases.ErrNotFound).Once()
 
@@ -195,7 +195,7 @@ func (s *BlogControllerTestSuite) TestDelete() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.DELETE("/blogs/:id", authMiddleware, controller.Delete)
+		router.DELETE("/blogs/:blogID", authMiddleware, controller.Delete)
 
 		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", domain.RoleUser).Return(nil).Once()
 
@@ -215,7 +215,7 @@ func (s *BlogControllerTestSuite) TestDelete() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.DELETE("/blogs/:id", authMiddleware, controller.Delete)
+		router.DELETE("/blogs/:blogID", authMiddleware, controller.Delete)
 
 		mockUsecase.On("Delete", mock.Anything, "blog-to-delete", "user-123", domain.RoleUser).Return(domain.ErrPermissionDenied).Once()
 
@@ -244,7 +244,7 @@ func (s *BlogControllerTestSuite) TestUpdate() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.PUT("/blogs/:id", authMiddleware, controller.Update)
+		router.PUT("/blogs/:blogID", authMiddleware, controller.Update)
 
 		// The data we expect to send in the request body
 		updatePayload := map[string]interface{}{"title": "Updated Title"}
@@ -278,7 +278,7 @@ func (s *BlogControllerTestSuite) TestUpdate() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.PUT("/blogs/:id", authMiddleware, controller.Update)
+		router.PUT("/blogs/:blogID", authMiddleware, controller.Update)
 
 		updatePayload := map[string]interface{}{"title": "Updated Title"}
 		mockUsecase.On("Update", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, domain.ErrPermissionDenied).Once()
@@ -415,7 +415,7 @@ func (s *BlogControllerTestSuite) TestInteractWithBlog() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.POST("/blogs/:id/interact", authMiddleware, controller.InteractWithBlog)
+		router.POST("/blogs/:blogID/interact", authMiddleware, controller.InteractWithBlog)
 
 		blogID := "blog-abc"
 		action := domain.ActionTypeLike
@@ -443,7 +443,7 @@ func (s *BlogControllerTestSuite) TestInteractWithBlog() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.POST("/blogs/:id/interact", authMiddleware, controller.InteractWithBlog)
+		router.POST("/blogs/:blogID/interact", authMiddleware, controller.InteractWithBlog)
 
 		// Create a request with an invalid action string.
 		invalidBody := `{"action": "invalid-action"}`
@@ -465,7 +465,7 @@ func (s *BlogControllerTestSuite) TestInteractWithBlog() {
 		mockUsecase := new(MockBlogUsecase)
 		controller := controllers.NewBlogController(mockUsecase)
 		router := gin.New()
-		router.POST("/blogs/:id/interact", authMiddleware, controller.InteractWithBlog)
+		router.POST("/blogs/:blogID/interact", authMiddleware, controller.InteractWithBlog)
 
 		blogID := "not-found-id"
 		action := domain.ActionTypeLike

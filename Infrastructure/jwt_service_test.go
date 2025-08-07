@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -61,17 +60,17 @@ func TestJWTService_GenerateRefreshToken(t *testing.T) {
 }
 
 func TestJWTService_Validation(t *testing.T) {
-	jwtService, _, _ := setupService()
+	jwtService, secret, _ := setupService()
 	otherService, _, _ := setupService() // Just to have another instance for testing
 	wrongSecretService := infrastructure.NewJWTService("a-different-secret", "test-issuer", 15*time.Minute, 24*time.Hour)
-	
+
 	userID := "user-789"
 	userRole := domain.RoleUser
 
 	t.Run("Success - Valid token", func(t *testing.T) {
 		tokenString, _, _ := jwtService.GenerateAccessToken(userID, userRole)
 		claims, err := otherService.ValidateToken(tokenString)
-		
+
 		require.NoError(t, err)
 		assert.Equal(t, userID, claims.UserID)
 	})
@@ -86,9 +85,9 @@ func TestJWTService_Validation(t *testing.T) {
 
 	t.Run("Failure - Token is expired", func(t *testing.T) {
 		// Create a service that generates instantly expired tokens
-		expiredService := infrastructure.NewJWTService("test-secret", "test-issuer", -5*time.Minute, -1*time.Hour)
+		expiredService := infrastructure.NewJWTService(secret, "test-issuer", -5*time.Minute, -1*time.Hour)
 		tokenString, _, _ := expiredService.GenerateAccessToken(userID, userRole)
-		
+
 		_, err := jwtService.ValidateToken(tokenString)
 
 		assert.Error(t, err)
@@ -97,13 +96,13 @@ func TestJWTService_Validation(t *testing.T) {
 }
 
 func TestJWTService_ParseExpiredToken(t *testing.T) {
-	jwtService, _, _ := setupService()
+	jwtService, secret, _ := setupService()
 	userID := "user-exp"
 	userRole := domain.RoleUser
 
 	// Create a service that generates instantly expired tokens
-	expiredService := infrastructure.NewJWTService("test-secret", "test-issuer", -5*time.Minute, 24*time.Hour)
-	
+	expiredService := infrastructure.NewJWTService(secret, "test-issuer", -5*time.Minute, 24*time.Hour)
+
 	t.Run("Success - Can parse an expired token", func(t *testing.T) {
 		// Arrange
 		tokenString, originalClaims, _ := expiredService.GenerateAccessToken(userID, userRole)
@@ -114,7 +113,7 @@ func TestJWTService_ParseExpiredToken(t *testing.T) {
 		// Assert
 		require.NoError(t, err, "ParseExpiredToken should not return an error for an expired token")
 		require.NotNil(t, parsedClaims)
-		
+
 		assert.Equal(t, originalClaims.ID, parsedClaims.ID)
 		assert.Equal(t, originalClaims.UserID, parsedClaims.UserID)
 	})

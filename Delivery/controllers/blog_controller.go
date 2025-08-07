@@ -78,7 +78,7 @@ func (bc *BlogController) Create(c *gin.Context) {
 }
 
 func (bc *BlogController) GetByID(c *gin.Context) {
-	blogID := c.Param("id")
+	blogID := c.Param("blogID")
 
 	blog, err := bc.blogUsecase.GetByID(c.Request.Context(), blogID)
 	if err != nil {
@@ -171,7 +171,7 @@ func (bc *BlogController) SearchAndFilter(c *gin.Context) {
 }
 
 func (bc *BlogController) Update(c *gin.Context) {
-	blogID := c.Param("id")
+	blogID := c.Param("blogID")
 	userID := c.GetString("userID")
 	userRole := domain.Role(c.GetString("role"))
 
@@ -191,7 +191,7 @@ func (bc *BlogController) Update(c *gin.Context) {
 }
 
 func (bc *BlogController) Delete(c *gin.Context) {
-	blogID := c.Param("id")
+	blogID := c.Param("blogID")
 	userID := c.GetString("userID")
 	userRole := domain.Role(c.GetString("role"))
 
@@ -206,7 +206,7 @@ func (bc *BlogController) Delete(c *gin.Context) {
 
 func (bc *BlogController) InteractWithBlog(c *gin.Context) {
 	// 1. Parse required parameters from the URL and context.
-	blogID := c.Param("id")
+	blogID := c.Param("blogID")
 	userID := c.GetString("userID") // Set by the authentication middleware.
 
 	// 2. Bind and validate the JSON request body.

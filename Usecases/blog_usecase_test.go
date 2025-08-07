@@ -80,6 +80,11 @@ func (m *MockBlogRepository) IncrementViews(ctx context.Context, blogID string) 
 	return args.Error(0)
 }
 
+func (m *MockBlogRepository) IncrementCommentCount(ctx context.Context, blogID string, value int) error {
+	args := m.Called(ctx, blogID, value)
+	return args.Error(0)
+}
+
 type MockInteractionRepository struct {
 	mock.Mock
 }
