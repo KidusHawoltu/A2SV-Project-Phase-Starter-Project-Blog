@@ -165,6 +165,10 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 		return "", "", domain.ErrOAuthUser
 	}
 
+	if user.Provider != domain.ProviderLocal {
+		return "", "", domain.ErrOAuthUser
+	}
+
 	if !user.IsActive {
 		return "", "", domain.ErrAccountNotActive
 	}

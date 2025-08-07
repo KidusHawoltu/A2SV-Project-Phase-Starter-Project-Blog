@@ -351,14 +351,13 @@ func TestUserUsecase_ActivateAccount(t *testing.T) {
 }
 
 func TestUserUsecase_ForgetPassword(t *testing.T) {
+	mockUserRepo := new(MockUserRepository)
+	mockTokenRepo := new(MockTokenRepository)
+	mockEmailSvc := new(MockEmailService)
+	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, mockTokenRepo, mockEmailSvc, nil, 2*time.Second)
 	user := &domain.User{ID: "user-123", Email: "user@example.com", Username: "testuser", Provider: domain.ProviderLocal}
 
 	t.Run("Success - Local User", func(t *testing.T) {
-		mockUserRepo := new(MockUserRepository)
-		mockTokenRepo := new(MockTokenRepository)
-		mockEmailSvc := new(MockEmailService)
-		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, mockTokenRepo, mockEmailSvc, nil, 2*time.Second)
-
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
 		mockTokenRepo.On("DeleteByUserID", mock.Anything, user.ID, domain.TokenTypePasswordReset).Return(nil).Once()
 		mockTokenRepo.On("Store", mock.Anything, mock.AnythingOfType("*domain.Token")).Return(nil).Once()
@@ -384,6 +383,25 @@ func TestUserUsecase_ForgetPassword(t *testing.T) {
 
 		assert.NoError(t, err, "Should not return an error for a Google user to prevent email enumeration")
 		mockUserRepo.AssertExpectations(t)
+		mockTokenRepo.AssertNotCalled(t, "DeleteByUserID")
+		mockTokenRepo.AssertNotCalled(t, "Store")
+		mockEmailSvc.AssertNotCalled(t, "SendPasswordResetEmail")
+	})
+
+	t.Run("Success - Google User (No Action)", func(t *testing.T) {
+		// Arrange
+		googleUser := &domain.User{
+			ID: "user-456", Email: "google@example.com", Username: "googleuser", Provider: domain.ProviderGoogle,
+		}
+		mockUserRepo.On("GetByEmail", mock.Anything, googleUser.Email).Return(googleUser, nil).Once()
+
+		// Act
+		err := uc.ForgetPassword(context.Background(), googleUser.Email)
+
+		// Assert
+		assert.NoError(t, err, "Should not return an error for a Google user to prevent email enumeration")
+		mockUserRepo.AssertExpectations(t)
+		// Crucially, no other methods (DeleteByUserID, Store, SendPasswordResetEmail) should be called.
 		mockTokenRepo.AssertNotCalled(t, "DeleteByUserID")
 		mockTokenRepo.AssertNotCalled(t, "Store")
 		mockEmailSvc.AssertNotCalled(t, "SendPasswordResetEmail")
