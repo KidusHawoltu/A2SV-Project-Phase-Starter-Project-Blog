@@ -50,24 +50,24 @@ type UserUsecase interface {
 }
 
 type userUsecase struct {
-	userRepo        			UserRepository
-	tokenRepo       			TokenRepository
-	passwordService 			infrastructure.PasswordService
-	jwtService      			infrastructure.JWTService
-	emailService    			infrastructure.EmailService
-	imageUploaderService 	domain.ImageUploaderService
-	contextTimeout  			time.Duration
+	userRepo             UserRepository
+	tokenRepo            TokenRepository
+	passwordService      infrastructure.PasswordService
+	jwtService           infrastructure.JWTService
+	emailService         infrastructure.EmailService
+	imageUploaderService domain.ImageUploaderService
+	contextTimeout       time.Duration
 }
 
-func NewUserUsecase(ur UserRepository, ps infrastructure.PasswordService, js infrastructure.JWTService, tr TokenRepository, es infrastructure.EmailService, ius domain.ImageUploaderService ,timeout time.Duration) UserUsecase {
+func NewUserUsecase(ur UserRepository, ps infrastructure.PasswordService, js infrastructure.JWTService, tr TokenRepository, es infrastructure.EmailService, ius domain.ImageUploaderService, timeout time.Duration) UserUsecase {
 	return &userUsecase{
-		userRepo:        ur,
-		tokenRepo:       tr,
-		passwordService: ps,
-		jwtService:      js,
-		emailService:    es,
+		userRepo:             ur,
+		tokenRepo:            tr,
+		passwordService:      ps,
+		jwtService:           js,
+		emailService:         es,
 		imageUploaderService: ius,
-		contextTimeout:  timeout,
+		contextTimeout:       timeout,
 	}
 }
 
@@ -352,7 +352,7 @@ func (uc *userUsecase) UpdateProfile(c context.Context, userID, bio string, prof
 
 	if profilePicFile != nil {
 		imageURL, err := uc.imageUploaderService.UploadProfilePicture(profilePicFile, profilePicHeader)
-		if err != nil{
+		if err != nil {
 			return nil, err
 		}
 
