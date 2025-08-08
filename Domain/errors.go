@@ -20,6 +20,7 @@ var (
 	ErrPermissionDenied     = errors.New("permission denied")
 	ErrUsernameExists       = errors.New("username already exists")
 	ErrOAuthUser            = errors.New("this action is not applicable to an account created with an external provider")
+	ErrCannotChangeOwnRole  = errors.New("admins cannot change their own role")
 
 	// Token errors
 	ErrInvalidID              = errors.New("invalid ID was used")

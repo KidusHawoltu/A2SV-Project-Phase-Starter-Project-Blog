@@ -7,7 +7,7 @@
 // To run this test:
 // 1. Ensure your .env file has the correct GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI.
 // 2. Execute the following command from the project root:
-//    go run -tags=manual ./Infrastructure/oauth-tester/google_oauth_manual_runner.go
+//    go run -tags=manual ./Infrastructure/manual-integration-tests/google_oauth_manual_runner.go
 //
 // The 'manual' build tag ensures this file is not included in your regular `go test` runs.
 

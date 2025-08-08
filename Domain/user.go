@@ -36,6 +36,29 @@ type User struct {
 	UpdatedAt time.Time
 }
 
+type UserSearchFilterOptions struct {
+	Username *string // Pointer for optional search
+	Email    *string // Pointer for optional search
+	Role     *Role   // Pointer to filter by a specific role
+	IsActive *bool   // Pointer to filter by active/inactive status
+	Provider *AuthProvider
+
+	// AND or OR
+	GlobalLogic GlobalLogic
+
+	// Date range for when the user was created
+	StartDate *time.Time
+	EndDate   *time.Time
+
+	// Pagination
+	Page  int64
+	Limit int64
+
+	// Sorting
+	SortBy    string    // e.g., "username", "email", "createdAt"
+	SortOrder SortOrder // ASC or DESC (reusing from blog domain)
+}
+
 // IsValid checks if the role is one of the predefined valid roles.
 func (r Role) IsValid() bool {
 	switch r {
@@ -53,6 +76,8 @@ func (u *User) Validate() error {
 	if len(u.Username) > 50 {
 		return ErrUsernameTooLong
 	}
+
+	// This block is now correctly structured and not duplicated.
 	if u.Provider == ProviderLocal {
 		if u.Password == nil || *u.Password == "" {
 			return ErrPasswordEmpty
@@ -61,10 +86,11 @@ func (u *User) Validate() error {
 			return ErrPasswordTooShort
 		}
 	}
+
 	if _, err := mail.ParseAddress(u.Email); err != nil || !emailRegex.MatchString(u.Email) {
 		return ErrInvalidEmailFormat
 	}
-	if !u.Role.IsValid() {
+	if u.Role != "" && !u.Role.IsValid() {
 		return ErrInvalidRole
 	}
 	return nil

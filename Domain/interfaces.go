@@ -101,5 +101,5 @@ type IGoogleOAuthService interface {
 }
 
 type ImageUploaderService interface {
-	UploadProfilePicture (file multipart.File, fileHeader *multipart.FileHeader) (string, error)
+	UploadProfilePicture(file multipart.File, fileHeader *multipart.FileHeader) (string, error)
 }
