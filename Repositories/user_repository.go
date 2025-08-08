@@ -14,34 +14,21 @@ import (
 
 // UserMongo is the data model for the database.
 type UserMongo struct {
-// UserMongo is the data model for the database.
-type UserMongo struct {
 	ID             primitive.ObjectID `bson:"_id,omitempty"`
 	Username       string             `bson:"username"`
 	Email          string             `bson:"email"`
 	IsActive       bool               `bson:"isActive"`
 	Password       *string            `bson:"password"`
-	IsActive       bool               `bson:"isActive"`
-	Password       *string            `bson:"password"`
 	Role           domain.Role        `bson:"role"`
 	Bio            string             `bson:"bio,omitempty"`
 	ProfilePicture string             `bson:"profilePicture,omitempty"`
-
-	Provider   string `bson:"provider"`
-	ProviderID string `bson:"providerId,omitempty"`
-
-	CreatedAt time.Time `bson:"createdAt"`
-	UpdatedAt time.Time `bson:"updatedAt"`
-
-	Provider   string `bson:"provider"`
-	ProviderID string `bson:"providerId,omitempty"`
-
-	CreatedAt time.Time `bson:"createdAt"`
-	UpdatedAt time.Time `bson:"updatedAt"`
+	Provider       string             `bson:"provider"`
+	ProviderID     string             `bson:"providerId,omitempty"`
+	CreatedAt      time.Time          `bson:"createdAt"`
+	UpdatedAt      time.Time          `bson:"updatedAt"`
 }
 
 // Mappers
-func toUserDomain(u UserMongo) *domain.User {
 func toUserDomain(u UserMongo) *domain.User {
 	return &domain.User{
 		ID:             u.ID.Hex(),
@@ -53,20 +40,16 @@ func toUserDomain(u UserMongo) *domain.User {
 		ProfilePicture: u.ProfilePicture,
 		Provider:       domain.AuthProvider(u.Provider),
 		ProviderID:     u.ProviderID,
-		Provider:       domain.AuthProvider(u.Provider),
-		ProviderID:     u.ProviderID,
 		CreatedAt:      u.CreatedAt,
 		UpdatedAt:      u.UpdatedAt,
 	}
 }
 
 func fromUserDomain(u domain.User) UserMongo {
-func fromUserDomain(u domain.User) UserMongo {
 	var objectID primitive.ObjectID
 	if id, err := primitive.ObjectIDFromHex(u.ID); err == nil {
 		objectID = id
 	}
-	return UserMongo{
 	return UserMongo{
 		ID:             objectID,
 		Username:       u.Username,
@@ -75,8 +58,6 @@ func fromUserDomain(u domain.User) UserMongo {
 		Role:           u.Role,
 		Bio:            u.Bio,
 		ProfilePicture: u.ProfilePicture,
-		Provider:       string(u.Provider),
-		ProviderID:     u.ProviderID,
 		Provider:       string(u.Provider),
 		ProviderID:     u.ProviderID,
 		CreatedAt:      u.CreatedAt,
@@ -101,7 +82,6 @@ func (r *mongoUserRepository) Create(ctx context.Context, user *domain.User) err
 	mongoModel.CreatedAt = now
 	mongoModel.UpdatedAt = now
 	mongoModel.ID = primitive.NewObjectID()
-	mongoModel.ID = primitive.NewObjectID()
 
 	_, err := r.collection.InsertOne(ctx, mongoModel)
 	if err != nil {
@@ -110,20 +90,10 @@ func (r *mongoUserRepository) Create(ctx context.Context, user *domain.User) err
 
 	// Update the domain object with the generated ID
 	user.ID = mongoModel.ID.Hex()
-
-	return nil
-	if err != nil {
-		return err
-	}
-
-	// Update the domain object with the generated ID
-	user.ID = mongoModel.ID.Hex()
-
 	return nil
 }
 
 func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	var mongoModel UserMongo
 	var mongoModel UserMongo
 	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&mongoModel)
 	if err != nil {
@@ -137,7 +107,6 @@ func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*do
 
 // GetByUsername fetches a single user by their username.
 func (r *mongoUserRepository) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
-	var mongoModel UserMongo
 	var mongoModel UserMongo
 	err := r.collection.FindOne(ctx, bson.M{"username": username}).Decode(&mongoModel)
 	if err != nil {
@@ -156,7 +125,6 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 	}
 
 	var mongoModel UserMongo
-	var mongoModel UserMongo
 	err = r.collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&mongoModel)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -167,8 +135,6 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 	return toUserDomain(mongoModel), nil
 }
 
-func (r *mongoUserRepository) Update(ctx context.Context, user *domain.User) error {
-	objectID, err := primitive.ObjectIDFromHex(user.ID)
 func (r *mongoUserRepository) Update(ctx context.Context, user *domain.User) error {
 	objectID, err := primitive.ObjectIDFromHex(user.ID)
 	if err != nil {
@@ -189,26 +155,8 @@ func (r *mongoUserRepository) Update(ctx context.Context, user *domain.User) err
 	return nil
 }
 
-	mongoModel := fromUserDomain(*user)
-
-	update := bson.M{"$set": mongoModel}
-
-	res, err := r.collection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
-	if err != nil {
-		return err
-	}
-	if res.MatchedCount == 0 {
-		return usecases.ErrNotFound
-	}
-	return nil
-}
-
 func (r *mongoUserRepository) FindUserIDsByName(ctx context.Context, authorName string) ([]string, error) {
-	// We want to find all users where the username matches, case-insensitively.
 	filter := bson.M{"username": bson.M{"$regex": authorName, "$options": "i"}}
-
-	// We only need the "_id" field, so we can use a projection to make the query more efficient.
-	// This tells MongoDB not to send back the entire user document over the network.
 	projection := options.Find().SetProjection(bson.M{"_id": 1})
 
 	cursor, err := r.collection.Find(ctx, filter, projection)
@@ -255,28 +203,22 @@ func (r *mongoUserRepository) FindByProviderID(ctx context.Context, provider dom
 
 // SearchAndFilter retrieves a paginated and filtered list of users based on the provided options.
 func (r *mongoUserRepository) SearchAndFilter(ctx context.Context, opts domain.UserSearchFilterOptions) ([]*domain.User, int64, error) {
-	// 1. Build the MongoDB filter document from the options.
 	filter := buildUserFilter(opts)
 
-	// 2. Get the total count of documents that match the filter for pagination metadata.
-	// This query is run without pagination options to count all matching users.
 	total, err := r.collection.CountDocuments(ctx, filter)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// 3. Configure find options for pagination and sorting.
 	findOptions := options.Find()
 	findOptions.SetLimit(opts.Limit)
 	findOptions.SetSkip((opts.Page - 1) * opts.Limit)
 
-	// Determine the sort order: 1 for ASC, -1 for DESC.
 	sortValue := -1 // Default to DESC
 	if opts.SortOrder == domain.SortOrderASC {
 		sortValue = 1
 	}
 
-	// Set the field to sort by. Default to 'createdAt' if not specified or invalid.
 	var sortDoc bson.D
 	switch opts.SortBy {
 	case "username":
@@ -288,14 +230,12 @@ func (r *mongoUserRepository) SearchAndFilter(ctx context.Context, opts domain.U
 	}
 	findOptions.SetSort(sortDoc)
 
-	// 4. Execute the find query with the filter and options.
 	cursor, err := r.collection.Find(ctx, filter, findOptions)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer cursor.Close(ctx)
 
-	// 5. Decode the results into a slice of domain user models.
 	var users []*domain.User
 	for cursor.Next(ctx) {
 		var model UserMongo
@@ -305,19 +245,16 @@ func (r *mongoUserRepository) SearchAndFilter(ctx context.Context, opts domain.U
 		users = append(users, toUserDomain(model))
 	}
 
-	// Check for any errors during cursor iteration.
 	if err := cursor.Err(); err != nil {
 		return nil, 0, err
 	}
 
-	// 6. Return the slice of users, the total count, and any error that occurred.
 	return users, total, nil
 }
 
 // buildUserFilter is a helper function that constructs the MongoDB filter document
 // from the search options. It is used by the SearchAndFilter method.
 func buildUserFilter(opts domain.UserSearchFilterOptions) bson.M {
-	// A slice to hold all individual filter conditions.
 	var conditions []bson.M
 
 	if opts.Username != nil && *opts.Username != "" {
@@ -336,7 +273,6 @@ func buildUserFilter(opts domain.UserSearchFilterOptions) bson.M {
 		conditions = append(conditions, bson.M{"provider": *opts.Provider})
 	}
 
-	// Handle date range filtering
 	dateFilter := bson.M{}
 	if opts.StartDate != nil {
 		dateFilter["$gte"] = *opts.StartDate
@@ -348,12 +284,10 @@ func buildUserFilter(opts domain.UserSearchFilterOptions) bson.M {
 		conditions = append(conditions, bson.M{"createdAt": dateFilter})
 	}
 
-	// If there are no conditions, return an empty filter to match all documents.
 	if len(conditions) == 0 {
 		return bson.M{}
 	}
 
-	// Construct the final filter based on the GlobalLogic (AND/OR).
 	operator := "$and" // Default to AND logic
 	if opts.GlobalLogic == domain.GlobalLogicOR {
 		operator = "$or"

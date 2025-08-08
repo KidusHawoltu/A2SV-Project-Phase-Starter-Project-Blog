@@ -29,6 +29,7 @@ type TokenRepository interface {
 	Delete(ctx context.Context, tokenID string) error
 	DeleteByUserID(ctx context.Context, userID string, tokenType domain.TokenType) error
 }
+
 type UserUsecase interface {
 	Register(ctx context.Context, user *domain.User) error
 	ActivateAccount(ctx context.Context, activationTokenValue string) error
@@ -84,35 +85,30 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 		return domain.ErrEmailExists
 	}
 
-	// Also check for username uniqueness
 	existingUser, _ = uc.userRepo.GetByUsername(ctx, user.Username)
 	if existingUser != nil {
 		return domain.ErrUsernameExists
 	}
 
 	hashedPassword, err := uc.passwordService.HashPassword(*(user.Password))
-	hashedPassword, err := uc.passwordService.HashPassword(*(user.Password))
 	if err != nil {
 		return err
 	}
 	user.Password = &hashedPassword
-	user.Password = &hashedPassword
 	user.Role = domain.RoleUser
 	user.IsActive = false
-	user.Provider = domain.ProviderLocal
 	user.Provider = domain.ProviderLocal
 
 	if err := uc.userRepo.Create(ctx, user); err != nil {
 		return err
 	}
 
-	//After successful creation, generate and send activation token.
 	activationToken := &domain.Token{
 		ID:        uuid.NewString(),
 		UserID:    user.ID,
 		Type:      domain.TokenTypeActivation,
 		Value:     uuid.NewString(),
-		ExpiresAt: time.Now().Add(24 * time.Hour), // Activation links can last longer
+		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 
 	if err := uc.tokenRepo.Store(ctx, activationToken); err != nil {
@@ -136,7 +132,6 @@ func (uc *userUsecase) ActivateAccount(c context.Context, activationTokenValue s
 		return domain.ErrUserNotFound
 	}
 
-	// Update the user's status.
 	user.IsActive = true
 	user.UpdatedAt = time.Now()
 
@@ -147,7 +142,6 @@ func (uc *userUsecase) ActivateAccount(c context.Context, activationTokenValue s
 	return uc.tokenRepo.Delete(ctx, activationToken.ID)
 }
 
-// login is updated to handle refresh token
 func (uc *userUsecase) Login(c context.Context, identifier, password string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
@@ -164,11 +158,7 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 		return "", "", err
 	}
 	if user == nil {
-		return "", "", domain.ErrAuthenticationFailed //user not found
-	}
-
-	if user.Provider != domain.ProviderLocal {
-		return "", "", domain.ErrOAuthUser
+		return "", "", domain.ErrAuthenticationFailed
 	}
 
 	if user.Provider != domain.ProviderLocal {
@@ -180,62 +170,25 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 	}
 
 	err = uc.passwordService.ComparePassword(*(user.Password), password)
-	err = uc.passwordService.ComparePassword(*(user.Password), password)
 	if err != nil {
 		return "", "", domain.ErrAuthenticationFailed
 	}
 
-	// Generate and return access token
-	accessTokenString, accessClaims, err := uc.jwtService.GenerateAccessToken(user.ID, user.Role)
-	if err != nil {
-		return "", "", err
-	}
-	refreshTokenString, refreshClaims, err := uc.jwtService.GenerateRefreshToken(user.ID)
-	if err != nil {
-		return "", "", err
-	}
-
-	accessToken := &domain.Token{
-		ID:        accessClaims.ID,
-		UserID:    user.ID,
-		Type:      domain.TokenTypeAccessToken,
-		Value:     accessTokenString,
-		ExpiresAt: accessClaims.ExpiresAt.Time,
-	}
-
-	if err := uc.tokenRepo.Store(ctx, accessToken); err != nil {
-		return "", "", err
-	}
-
-	refreshToken := &domain.Token{
-		ID:        refreshClaims.ID,
-		UserID:    user.ID,
-		Type:      domain.TokenTypeRefresh,
-		Value:     refreshTokenString,
-		ExpiresAt: refreshClaims.ExpiresAt.Time,
-	}
-	if err := uc.tokenRepo.Store(ctx, refreshToken); err != nil {
-		return "", "", err
-	}
-
-	return accessTokenString, refreshTokenString, nil
-
+	return uc.generateAndStoreTokenPair(ctx, user)
 }
 
-// Logout invalidates a session by deleting the refresh token.
 func (uc *userUsecase) Logout(c context.Context, refreshToken string) error {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
 	token, err := uc.tokenRepo.GetByValue(ctx, refreshToken)
 	if err != nil || token == nil || token.Type != domain.TokenTypeRefresh {
-		return nil // Do not leak info. Act as if logout was successful.
+		return nil
 	}
 
 	return uc.tokenRepo.Delete(ctx, token.ID)
 }
 
-// RefreshAccessToken issues a new access token from a valid refresh token.
 func (uc *userUsecase) RefreshAccessToken(c context.Context, refreshToken, accessToken string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
@@ -258,14 +211,12 @@ func (uc *userUsecase) RefreshAccessToken(c context.Context, refreshToken, acces
 	}
 
 	if dbRefreshToken.UserID != AccessClaims.UserID || dbAccessToken.UserID != dbRefreshToken.UserID {
-		return "", "", domain.ErrAuthenticationFailed // mismatched user IDs.
+		return "", "", domain.ErrAuthenticationFailed
 	}
 
-	//Everything checks out. Invalidate the old tokens.
 	uc.tokenRepo.Delete(ctx, dbAccessToken.ID)
 	uc.tokenRepo.Delete(ctx, dbRefreshToken.ID)
 
-	//Generate and store a new pair of tokens.
 	user, err := uc.userRepo.GetByID(ctx, dbRefreshToken.UserID)
 	if err != nil || user == nil {
 		return "", "", domain.ErrUserNotFound
@@ -274,31 +225,19 @@ func (uc *userUsecase) RefreshAccessToken(c context.Context, refreshToken, acces
 	return uc.generateAndStoreTokenPair(ctx, user)
 }
 
-// ForgotPassword generates a reset token and sends it via email.
 func (uc *userUsecase) ForgetPassword(c context.Context, email string) error {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
 	user, err := uc.userRepo.GetByEmail(ctx, email)
 	if err != nil || user == nil {
-		return nil // Prevent email enumeration attacks.
-	}
-
-	if user.Provider != domain.ProviderLocal {
-		// We still return nil to prevent leaking information about which emails
-		// are registered with OAuth providers.
-		// You could log this event for monitoring.
 		return nil
 	}
 
 	if user.Provider != domain.ProviderLocal {
-		// We still return nil to prevent leaking information about which emails
-		// are registered with OAuth providers.
-		// You could log this event for monitoring.
 		return nil
 	}
 
-	// Delete previous reset tokens for this user.
 	if err := uc.tokenRepo.DeleteByUserID(ctx, user.ID, domain.TokenTypePasswordReset); err != nil {
 		return err
 	}
@@ -314,10 +253,9 @@ func (uc *userUsecase) ForgetPassword(c context.Context, email string) error {
 		return err
 	}
 
-	return uc.emailService.SendPasswordResetEmail(user.Email, user.Username, resetToken.ID)
+	return uc.emailService.SendPasswordResetEmail(user.Email, user.Username, resetToken.Value)
 }
 
-// ResetPassword validates the token and updates the password.
 func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPassword string) error {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
@@ -334,9 +272,6 @@ func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPass
 	if user.Provider != domain.ProviderLocal {
 		return domain.ErrOAuthUser
 	}
-	if user.Provider != domain.ProviderLocal {
-		return domain.ErrOAuthUser
-	}
 	if len(newPassword) < 8 {
 		return domain.ErrPasswordTooShort
 	}
@@ -347,17 +282,14 @@ func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPass
 	}
 
 	user.Password = &hashedPassword
-	user.Password = &hashedPassword
 	user.UpdatedAt = time.Now()
 
 	if err := uc.userRepo.Update(ctx, user); err != nil {
 		return err
 	}
-	// Invalidate the token after use.
 	return uc.tokenRepo.Delete(ctx, resetToken.ID)
 }
 
-// UpdateProfile allows a user to update their own bio and profile picture URL.
 func (uc *userUsecase) UpdateProfile(c context.Context, userID, bio string, profilePicFile multipart.File, profilePicHeader *multipart.FileHeader) (*domain.User, error) {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
@@ -374,7 +306,6 @@ func (uc *userUsecase) UpdateProfile(c context.Context, userID, bio string, prof
 		if err != nil {
 			return nil, err
 		}
-
 		user.ProfilePicture = imageURL
 	}
 	user.UpdatedAt = time.Now()
@@ -398,9 +329,7 @@ func (uc *userUsecase) GetProfile(c context.Context, userID string) (*domain.Use
 	return user, nil
 }
 
-// helper
 func (uc *userUsecase) generateAndStoreTokenPair(ctx context.Context, user *domain.User) (string, string, error) {
-	// Access token
 	accessToken, accessClaims, err := uc.jwtService.GenerateAccessToken(user.ID, user.Role)
 	if err != nil {
 		return "", "", err
@@ -418,7 +347,6 @@ func (uc *userUsecase) generateAndStoreTokenPair(ctx context.Context, user *doma
 		return "", "", err
 	}
 
-	// Refresh token
 	refreshToken, refreshClaims, err := uc.jwtService.GenerateRefreshToken(user.ID)
 	if err != nil {
 		return "", "", err
@@ -442,15 +370,12 @@ func (uc *userUsecase) SearchAndFilter(c context.Context, options domain.UserSea
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
-	// 1. Apply business rule defaults for pagination.
-	// This prevents overly large queries and ensures consistent behavior.
 	if options.Page <= 0 {
 		options.Page = 1
 	}
 	if options.Limit <= 0 {
-		options.Limit = 10 // Default to 10 results per page
+		options.Limit = 10
 	}
-	// Enforce a maximum limit to protect the system.
 	if options.Limit > 100 {
 		options.Limit = 100
 	}
@@ -462,39 +387,32 @@ func (uc *userUsecase) SetUserRole(ctx context.Context, actorUserID string, acto
 	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
 	defer cancel()
 
-	// 1. Authorization Check: Only admins can perform this action.
 	if actorRole != domain.RoleAdmin {
 		return nil, domain.ErrPermissionDenied
 	}
 
-	// 2. Self-Modification Check: Admins cannot change their own role.
 	if actorUserID == targetUserID {
 		return nil, domain.ErrCannotChangeOwnRole
 	}
 
-	// 3. New Role Validation: Ensure the new role is a valid one.
 	if !newRole.IsValid() {
 		return nil, domain.ErrInvalidRole
 	}
 
-	// 4. Fetch the target user from the repository.
 	targetUser, err := uc.userRepo.GetByID(ctx, targetUserID)
 	if err != nil {
-		// This will correctly return domain.ErrUserNotFound if the user doesn't exist.
 		return nil, err
 	}
 
-	// 5. Redundancy Check: If the role is already correct, do nothing.
 	if targetUser.Role == newRole {
-		return targetUser, nil // Success, no update needed.
+		return targetUser, nil
 	}
 
-	// 6. Update the user's role and save.
 	targetUser.Role = newRole
 	targetUser.UpdatedAt = time.Now()
 
 	if err := uc.userRepo.Update(ctx, targetUser); err != nil {
-		return nil, err // Handle potential database update errors.
+		return nil, err
 	}
 
 	return targetUser, nil

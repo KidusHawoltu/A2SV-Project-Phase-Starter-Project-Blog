@@ -8,13 +8,8 @@ import (
 
 type Role string
 type AuthProvider string
-type AuthProvider string
 
 const (
-	RoleUser       Role         = "user"
-	RoleAdmin      Role         = "admin"
-	ProviderLocal  AuthProvider = "local"
-	ProviderGoogle AuthProvider = "google"
 	RoleUser       Role         = "user"
 	RoleAdmin      Role         = "admin"
 	ProviderLocal  AuthProvider = "local"
@@ -81,13 +76,8 @@ func (u *User) Validate() error {
 	if len(u.Username) > 50 {
 		return ErrUsernameTooLong
 	}
-	if u.Provider == ProviderLocal {
-		if u.Password == nil || *u.Password == "" {
-			return ErrPasswordEmpty
-		}
-		if len(*u.Password) < 8 {
-			return ErrPasswordTooShort
-		}
+
+	// This block is now correctly structured and not duplicated.
 	if u.Provider == ProviderLocal {
 		if u.Password == nil || *u.Password == "" {
 			return ErrPasswordEmpty
@@ -96,13 +86,12 @@ func (u *User) Validate() error {
 			return ErrPasswordTooShort
 		}
 	}
+
 	if _, err := mail.ParseAddress(u.Email); err != nil || !emailRegex.MatchString(u.Email) {
 		return ErrInvalidEmailFormat
 	}
-	if !u.Role.IsValid() {
+	if u.Role != "" && !u.Role.IsValid() {
 		return ErrInvalidRole
 	}
 	return nil
-
 }
-

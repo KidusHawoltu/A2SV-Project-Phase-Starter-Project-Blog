@@ -115,9 +115,7 @@ func main() {
 	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, imageUploadService, usecaseTimeout)
 	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
 	aiUsecase := usecases.NewAIUsecase(aiService, 5*usecaseTimeout)
-	aiUsecase := usecases.NewAIUsecase(aiService, 5*usecaseTimeout)
 	commentUsecase := usecases.NewCommentUsecase(blogRepo, commentRepo, usecaseTimeout)
-	oauthUsecase := usecases.NewOAuthUsecase(userRepo, tokenRepo, jwtService, googleOAuth2Service, usecaseTimeout)
 	oauthUsecase := usecases.NewOAuthUsecase(userRepo, tokenRepo, jwtService, googleOAuth2Service, usecaseTimeout)
 
 	// --- Controllers ---
@@ -126,10 +124,8 @@ func main() {
 	aiController := controllers.NewAIController(aiUsecase)
 	commentController := controllers.NewCommentController(commentUsecase)
 	oauthController := controllers.NewOAuthController(oauthUsecase)
-	oauthController := controllers.NewOAuthController(oauthUsecase)
 
 	// --- Setup Router ---
-	router := routers.SetupRouter(userController, blogController, aiController, commentController, oauthController, jwtService)
 	router := routers.SetupRouter(userController, blogController, aiController, commentController, oauthController, jwtService)
 
 	log.Printf("Server starting on port %s...", serverPort)
