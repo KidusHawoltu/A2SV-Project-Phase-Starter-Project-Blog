@@ -258,7 +258,27 @@ func (ctrl *UserController) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	updatedUser, err := ctrl.userUsecase.UpdateProfile(c.Request.Context(), userID.(string), req.Bio, req.ProfilePicURL)
+	err := c.Request.ParseMultipartForm(10 << 20)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid form data"})
+		return
+	}
+
+	bio := c.Request.FormValue("bio")
+	file, header, err := c.Request.FormFile("profilePicture")
+	
+    // It's not an error if the file is missing; it's optional.
+	if err != nil && err != http.ErrMissingFile {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file upload"})
+		return
+	}
+
+	if file != nil {
+		defer file.Close()
+	}
+
+	
+	updatedUser, err := ctrl.userUsecase.UpdateProfile(c.Request.Context(), userID.(string), bio, file, header)
 	if err != nil {
 		if err == domain.ErrUserNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -270,5 +290,4 @@ func (ctrl *UserController) UpdateProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, toUserResponse(updatedUser))
-
 }

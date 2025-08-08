@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"mime/multipart"
 
 	"golang.org/x/oauth2"
 )
@@ -97,4 +98,8 @@ type GoogleUserInfo struct {
 type IGoogleOAuthService interface {
 	ExchangeCodeForToken(ctx context.Context, code string) (*oauth2.Token, error)
 	GetUserInfo(ctx context.Context, token *oauth2.Token) (*GoogleUserInfo, error)
+}
+
+type ImageUploaderService interface {
+	UploadProfilePicture (file multipart.File, fileHeader *multipart.FileHeader) (string, error)
 }

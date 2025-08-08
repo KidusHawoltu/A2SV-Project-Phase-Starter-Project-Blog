@@ -92,6 +92,10 @@ func main() {
 	if err != nil {
 		log.Println("WARN: Google OAuth credentials are not set. Sign in with Google will fail.", err)
 	}
+	imageUploadService, err := infrastructure.NewCloudinaryService()
+	if err != nil {
+    log.Printf("WARN: Cloudinary service failed to initialize. Image uploads will be unavailable. Error: %v", err)
+	}
 
 	// --- Repositories ---
 	userRepo := repositories.NewMongoUserRepository(db, "users")
@@ -101,7 +105,7 @@ func main() {
 	commentRepo := repositories.NewCommentRepository(db.Collection("blog_comments"))
 
 	// --- Usecases ---
-	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, usecaseTimeout)
+	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, imageUploadService,usecaseTimeout)
 	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
 	aiUsecase := usecases.NewAIUsecase(aiService, 5*usecaseTimeout)
 	commentUsecase := usecases.NewCommentUsecase(blogRepo, commentRepo, usecaseTimeout)
