@@ -4,6 +4,7 @@ import (
 	domain "A2SV_Starter_Project_Blog/Domain"
 	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
 	"context"
+	"mime/multipart"
 	"net/mail"
 	"time"
 
@@ -39,26 +40,28 @@ type UserUsecase interface {
 	ResetPassword(ctx context.Context, resetToken, newPassword string) error
 
 	//Profile Management
-	UpdateProfile(ctx context.Context, userID, bio, profilePicURL string) (*domain.User, error)
+	UpdateProfile(c context.Context, userID, bio string, profilePicFile multipart.File, profilePicHeader *multipart.FileHeader) (*domain.User, error)
 	GetProfile(c context.Context, userID string) (*domain.User, error)
 }
 
 type userUsecase struct {
-	userRepo        UserRepository
-	tokenRepo       TokenRepository
-	passwordService infrastructure.PasswordService
-	jwtService      infrastructure.JWTService
-	emailService    infrastructure.EmailService
-	contextTimeout  time.Duration
+	userRepo        			UserRepository
+	tokenRepo       			TokenRepository
+	passwordService 			infrastructure.PasswordService
+	jwtService      			infrastructure.JWTService
+	emailService    			infrastructure.EmailService
+	imageUploaderService 	domain.ImageUploaderService
+	contextTimeout  			time.Duration
 }
 
-func NewUserUsecase(ur UserRepository, ps infrastructure.PasswordService, js infrastructure.JWTService, tr TokenRepository, es infrastructure.EmailService, timeout time.Duration) UserUsecase {
+func NewUserUsecase(ur UserRepository, ps infrastructure.PasswordService, js infrastructure.JWTService, tr TokenRepository, es infrastructure.EmailService, ius domain.ImageUploaderService ,timeout time.Duration) UserUsecase {
 	return &userUsecase{
 		userRepo:        ur,
 		tokenRepo:       tr,
 		passwordService: ps,
 		jwtService:      js,
 		emailService:    es,
+		imageUploaderService: ius,
 		contextTimeout:  timeout,
 	}
 }
@@ -331,7 +334,7 @@ func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPass
 }
 
 // UpdateProfile allows a user to update their own bio and profile picture URL.
-func (uc *userUsecase) UpdateProfile(c context.Context, userID, bio, profilePicURL string) (*domain.User, error) {
+func (uc *userUsecase) UpdateProfile(c context.Context, userID, bio string, profilePicFile multipart.File, profilePicHeader *multipart.FileHeader) (*domain.User, error) {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
@@ -341,7 +344,15 @@ func (uc *userUsecase) UpdateProfile(c context.Context, userID, bio, profilePicU
 	}
 
 	user.Bio = bio
-	user.ProfilePicture = profilePicURL
+
+	if profilePicFile != nil {
+		imageURL, err := uc.imageUploaderService.UploadProfilePicture(profilePicFile, profilePicHeader)
+		if err != nil{
+			return nil, err
+		}
+
+		user.ProfilePicture = imageURL
+	}
 	user.UpdatedAt = time.Now()
 
 	if err := uc.userRepo.Update(ctx, user); err != nil {
