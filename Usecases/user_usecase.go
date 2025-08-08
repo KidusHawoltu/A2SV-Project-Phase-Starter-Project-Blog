@@ -5,6 +5,7 @@ import (
 	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
 	"context"
 	"mime/multipart"
+	"mime/multipart"
 	"net/mail"
 	"time"
 
@@ -42,6 +43,7 @@ type UserUsecase interface {
 	ResetPassword(ctx context.Context, resetToken, newPassword string) error
 
 	//Profile Management
+	UpdateProfile(c context.Context, userID, bio string, profilePicFile multipart.File, profilePicHeader *multipart.FileHeader) (*domain.User, error)
 	UpdateProfile(c context.Context, userID, bio string, profilePicFile multipart.File, profilePicHeader *multipart.FileHeader) (*domain.User, error)
 	GetProfile(c context.Context, userID string) (*domain.User, error)
 
