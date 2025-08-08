@@ -91,4 +91,5 @@ func (u *User) Validate() error {
 		return ErrInvalidRole
 	}
 	return nil
+
 }
