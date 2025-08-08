@@ -207,3 +207,111 @@ func (r *mongoUserRepository) FindByProviderID(ctx context.Context, provider dom
 	}
 	return toUserDomain(mongoModel), nil
 }
+
+// SearchAndFilter retrieves a paginated and filtered list of users based on the provided options.
+func (r *mongoUserRepository) SearchAndFilter(ctx context.Context, opts domain.UserSearchFilterOptions) ([]*domain.User, int64, error) {
+	// 1. Build the MongoDB filter document from the options.
+	filter := buildUserFilter(opts)
+
+	// 2. Get the total count of documents that match the filter for pagination metadata.
+	// This query is run without pagination options to count all matching users.
+	total, err := r.collection.CountDocuments(ctx, filter)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 3. Configure find options for pagination and sorting.
+	findOptions := options.Find()
+	findOptions.SetLimit(opts.Limit)
+	findOptions.SetSkip((opts.Page - 1) * opts.Limit)
+
+	// Determine the sort order: 1 for ASC, -1 for DESC.
+	sortValue := -1 // Default to DESC
+	if opts.SortOrder == domain.SortOrderASC {
+		sortValue = 1
+	}
+
+	// Set the field to sort by. Default to 'createdAt' if not specified or invalid.
+	var sortDoc bson.D
+	switch opts.SortBy {
+	case "username":
+		sortDoc = bson.D{{Key: "username", Value: sortValue}}
+	case "email":
+		sortDoc = bson.D{{Key: "email", Value: sortValue}}
+	default: // "createdAt" or any other value defaults to sorting by creation date.
+		sortDoc = bson.D{{Key: "createdAt", Value: sortValue}}
+	}
+	findOptions.SetSort(sortDoc)
+
+	// 4. Execute the find query with the filter and options.
+	cursor, err := r.collection.Find(ctx, filter, findOptions)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	// 5. Decode the results into a slice of domain user models.
+	var users []*domain.User
+	for cursor.Next(ctx) {
+		var model UserMongo
+		if err := cursor.Decode(&model); err != nil {
+			return nil, 0, err
+		}
+		users = append(users, toUserDomain(model))
+	}
+
+	// Check for any errors during cursor iteration.
+	if err := cursor.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	// 6. Return the slice of users, the total count, and any error that occurred.
+	return users, total, nil
+}
+
+// buildUserFilter is a helper function that constructs the MongoDB filter document
+// from the search options. It is used by the SearchAndFilter method.
+func buildUserFilter(opts domain.UserSearchFilterOptions) bson.M {
+	// A slice to hold all individual filter conditions.
+	var conditions []bson.M
+
+	if opts.Username != nil && *opts.Username != "" {
+		conditions = append(conditions, bson.M{"username": bson.M{"$regex": primitive.Regex{Pattern: *opts.Username, Options: "i"}}})
+	}
+	if opts.Email != nil && *opts.Email != "" {
+		conditions = append(conditions, bson.M{"email": bson.M{"$regex": primitive.Regex{Pattern: *opts.Email, Options: "i"}}})
+	}
+	if opts.Role != nil {
+		conditions = append(conditions, bson.M{"role": *opts.Role})
+	}
+	if opts.IsActive != nil {
+		conditions = append(conditions, bson.M{"isActive": *opts.IsActive})
+	}
+	if opts.Provider != nil {
+		conditions = append(conditions, bson.M{"provider": *opts.Provider})
+	}
+
+	// Handle date range filtering
+	dateFilter := bson.M{}
+	if opts.StartDate != nil {
+		dateFilter["$gte"] = *opts.StartDate
+	}
+	if opts.EndDate != nil {
+		dateFilter["$lte"] = *opts.EndDate
+	}
+	if len(dateFilter) > 0 {
+		conditions = append(conditions, bson.M{"createdAt": dateFilter})
+	}
+
+	// If there are no conditions, return an empty filter to match all documents.
+	if len(conditions) == 0 {
+		return bson.M{}
+	}
+
+	// Construct the final filter based on the GlobalLogic (AND/OR).
+	operator := "$and" // Default to AND logic
+	if opts.GlobalLogic == domain.GlobalLogicOR {
+		operator = "$or"
+	}
+	return bson.M{operator: conditions}
+}

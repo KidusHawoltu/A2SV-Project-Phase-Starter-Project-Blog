@@ -48,6 +48,13 @@ func main() {
 		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
 	}
 
+	cloudinaryCloudName := os.Getenv("CLOUDINARY_CLOUD_NAME")
+	cloudinaryApiKey := os.Getenv("CLOUDINARY_API_KEY")
+	cloudinaryApiSecret := os.Getenv("CLOUDINARY_API_SECRET")
+	if cloudinaryCloudName == "" || cloudinaryApiKey == "" || cloudinaryApiSecret == "" {
+		log.Panicln("WARN: Cloudinary credentials are not set. Image uploading will fail")
+	}
+
 	// Google OAuth2 Credentials
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
@@ -92,9 +99,9 @@ func main() {
 	if err != nil {
 		log.Println("WARN: Google OAuth credentials are not set. Sign in with Google will fail.", err)
 	}
-	imageUploadService, err := infrastructure.NewCloudinaryService()
+	imageUploadService, err := infrastructure.NewCloudinaryService(cloudinaryCloudName, cloudinaryApiKey, cloudinaryApiSecret)
 	if err != nil {
-    log.Printf("WARN: Cloudinary service failed to initialize. Image uploads will be unavailable. Error: %v", err)
+		log.Printf("WARN: Cloudinary service failed to initialize. Image uploads will be unavailable. Error: %v", err)
 	}
 
 	// --- Repositories ---
@@ -105,7 +112,7 @@ func main() {
 	commentRepo := repositories.NewCommentRepository(db.Collection("blog_comments"))
 
 	// --- Usecases ---
-	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, imageUploadService,usecaseTimeout)
+	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, imageUploadService, usecaseTimeout)
 	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
 	aiUsecase := usecases.NewAIUsecase(aiService, 5*usecaseTimeout)
 	commentUsecase := usecases.NewCommentUsecase(blogRepo, commentRepo, usecaseTimeout)

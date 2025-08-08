@@ -6,6 +6,7 @@ import (
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 	"go.mongodb.org/mongo-driver/bson"
@@ -281,5 +282,156 @@ func (s *UserRepositorySuite) TestFindByProviderID() {
 		// Assert
 		s.NoError(err)
 		s.Nil(foundUser)
+	})
+}
+
+func (s *UserRepositorySuite) TestSearchAndFilter() {
+	ctx := context.Background()
+	// Arrange: Seed the database with a diverse set of users for comprehensive testing.
+	// We'll create users with different roles, providers, and creation times.
+
+	// Define some time points to test date filtering
+	timeNow := time.Now()
+	timeYesterday := timeNow.AddDate(0, 0, -1)
+	timeTwoDaysAgo := timeNow.AddDate(0, 0, -2)
+
+	// User data to insert
+	usersToCreate := []repositories.UserMongo{
+		{Username: "AliceAdmin", Email: "alice@test.com", Role: domain.RoleAdmin, IsActive: true, Provider: string(domain.ProviderLocal), CreatedAt: timeNow},
+		{Username: "BobUser", Email: "bob@test.com", Role: domain.RoleUser, IsActive: true, Provider: string(domain.ProviderLocal), CreatedAt: timeYesterday},
+		{Username: "CharlieGoogle", Email: "charlie@test.com", Role: domain.RoleUser, IsActive: true, Provider: string(domain.ProviderGoogle), CreatedAt: timeTwoDaysAgo},
+		{Username: "DianaInactive", Email: "diana@test.com", Role: domain.RoleUser, IsActive: false, Provider: string(domain.ProviderLocal), CreatedAt: timeTwoDaysAgo},
+	}
+
+	// Convert to []interface{} for InsertMany
+	var docs []interface{}
+	for _, u := range usersToCreate {
+		u.ID = primitive.NewObjectID()
+		docs = append(docs, u)
+	}
+	_, err := s.collection.InsertMany(ctx, docs)
+	s.Require().NoError(err)
+
+	// --- TEST CASES ---
+
+	s.Run("Filter by Role - Admin", func() {
+		roleAdmin := domain.RoleAdmin
+		options := domain.UserSearchFilterOptions{Role: &roleAdmin}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(1), total)
+		s.Len(users, 1)
+		s.Equal("AliceAdmin", users[0].Username)
+	})
+
+	s.Run("Filter by IsActive - false", func() {
+		isActiveFalse := false
+		options := domain.UserSearchFilterOptions{IsActive: &isActiveFalse}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(1), total)
+		s.Len(users, 1)
+		s.Equal("DianaInactive", users[0].Username)
+	})
+
+	s.Run("Search by Username - Partial Case-Insensitive", func() {
+		usernameSearch := "ali"
+		options := domain.UserSearchFilterOptions{Username: &usernameSearch}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(1), total)
+		s.Len(users, 1)
+		s.Equal("AliceAdmin", users[0].Username)
+	})
+
+	s.Run("Filter by Provider - Google", func() {
+		providerGoogle := domain.ProviderGoogle
+		options := domain.UserSearchFilterOptions{Provider: &providerGoogle}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(1), total)
+		s.Len(users, 1)
+		s.Equal("CharlieGoogle", users[0].Username)
+	})
+
+	s.Run("Filter by Date Range", func() {
+		// Should find Charlie and Diana
+		startDate := timeTwoDaysAgo.Add(-1 * time.Hour)
+		endDate := timeTwoDaysAgo.Add(1 * time.Hour)
+		options := domain.UserSearchFilterOptions{StartDate: &startDate, EndDate: &endDate}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(2), total)
+		s.Len(users, 2)
+		// Use ElementsMatch as DB order isn't guaranteed
+		s.ElementsMatch([]string{"CharlieGoogle", "DianaInactive"}, []string{users[0].Username, users[1].Username})
+	})
+
+	s.Run("Combine Filters with AND logic - Admin and Active", func() {
+		roleAdmin := domain.RoleAdmin
+		isActiveTrue := true
+		options := domain.UserSearchFilterOptions{
+			Role:        &roleAdmin,
+			IsActive:    &isActiveTrue,
+			GlobalLogic: domain.GlobalLogicAND, // Explicitly AND
+		}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(1), total, "Should only find Alice who is both admin and active")
+		s.Len(users, 1)
+		s.Equal("AliceAdmin", users[0].Username)
+	})
+
+	s.Run("Combine Filters with OR logic - Admin or Google Provider", func() {
+		roleAdmin := domain.RoleAdmin
+		providerGoogle := domain.ProviderGoogle
+		options := domain.UserSearchFilterOptions{
+			Role:        &roleAdmin,
+			Provider:    &providerGoogle,
+			GlobalLogic: domain.GlobalLogicOR,
+		}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(2), total, "Should find Alice (admin) and Charlie (google)")
+		s.Len(users, 2)
+		s.ElementsMatch([]string{"AliceAdmin", "CharlieGoogle"}, []string{users[0].Username, users[1].Username})
+	})
+
+	s.Run("Pagination - Get first page of 2", func() {
+		options := domain.UserSearchFilterOptions{
+			Page:      1,
+			Limit:     2,
+			SortBy:    "createdAt",
+			SortOrder: domain.SortOrderDESC, // Most recent first: Alice, then Bob
+		}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(4), total, "Total should be all users")
+		s.Len(users, 2)
+		s.Equal("AliceAdmin", users[0].Username)
+		s.Equal("BobUser", users[1].Username)
+	})
+
+	s.Run("Pagination - Get second page of 2", func() {
+		options := domain.UserSearchFilterOptions{
+			Page:      2,
+			Limit:     2,
+			SortBy:    "createdAt",
+			SortOrder: domain.SortOrderDESC, // Most recent first
+		}
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(4), total)
+		s.Len(users, 2)
+		// Charlie and Diana were created at the same time, so their order isn't guaranteed
+		s.ElementsMatch([]string{"CharlieGoogle", "DianaInactive"}, []string{users[0].Username, users[1].Username})
+	})
+
+	s.Run("No Filters - Returns all users", func() {
+		options := domain.UserSearchFilterOptions{} // Empty options
+		users, total, err := s.repository.SearchAndFilter(ctx, options)
+		s.NoError(err)
+		s.Equal(int64(4), total)
+		s.Len(users, 4)
 	})
 }

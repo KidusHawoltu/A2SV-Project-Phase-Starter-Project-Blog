@@ -36,6 +36,29 @@ type User struct {
 	UpdatedAt time.Time
 }
 
+type UserSearchFilterOptions struct {
+	Username *string // Pointer for optional search
+	Email    *string // Pointer for optional search
+	Role     *Role   // Pointer to filter by a specific role
+	IsActive *bool   // Pointer to filter by active/inactive status
+	Provider *AuthProvider
+
+	// AND or OR
+	GlobalLogic GlobalLogic
+
+	// Date range for when the user was created
+	StartDate *time.Time
+	EndDate   *time.Time
+
+	// Pagination
+	Page  int64
+	Limit int64
+
+	// Sorting
+	SortBy    string    // e.g., "username", "email", "createdAt"
+	SortOrder SortOrder // ASC or DESC (reusing from blog domain)
+}
+
 // IsValid checks if the role is one of the predefined valid roles.
 func (r Role) IsValid() bool {
 	switch r {

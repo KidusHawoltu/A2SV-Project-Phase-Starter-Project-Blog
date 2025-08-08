@@ -57,6 +57,16 @@ func SetupRouter(
 	}
 
 	// ------------------------
+	// Admin Routes
+	// ------------------------
+	admin := apiV1.Group("/admin")
+	admin.Use(infrastructure.AuthMiddleware(jwtService), infrastructure.AdminOnlyMiddleware())
+	{
+		admin.GET("/users", userController.SearchAndFilter)
+		admin.PATCH("/users/:userID/role", userController.SetUserRole)
+	}
+
+	// ------------------------
 	// Blog Routes (Mixed)
 	// ------------------------
 	publicBlogs := apiV1.Group("/blogs")

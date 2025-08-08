@@ -5,6 +5,9 @@ import (
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -47,18 +50,27 @@ type ResetPasswordRequest struct {
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
-type UpdateProfileRequest struct {
-	Bio           string `json:"bio"`
-	ProfilePicURL string `json:"profilePictureUrl"`
+type SetRoleRequest struct {
+	NewRole domain.Role `json:"newRole" binding:"required"`
 }
 
 type UserResponse struct {
-	ID             string `json:"id"`
-	Username       string `json:"username"`
-	Email          string `json:"email"`
-	Bio            string `json:"bio"`
-	ProfilePicture string `json:"profilepicture"`
-	Role           string `json:"role"`
+	ID             string    `json:"id"`
+	Username       string    `json:"username"`
+	Email          string    `json:"email"`
+	Bio            string    `json:"bio,omitempty"`
+	ProfilePicture string    `json:"profile_picture,omitempty"`
+	Role           string    `json:"role"`
+	IsActive       bool      `json:"is_active"`
+	Provider       string    `json:"provider"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// PaginatedUserResponse defines the structure for a paginated list of users.
+type PaginatedUserResponse struct {
+	Data       []UserResponse `json:"data"`
+	Pagination Pagination     `json:"pagination"`
 }
 
 func toUserResponse(u *domain.User) UserResponse {
@@ -69,6 +81,10 @@ func toUserResponse(u *domain.User) UserResponse {
 		Bio:            u.Bio,
 		ProfilePicture: u.ProfilePicture,
 		Role:           string(u.Role),
+		IsActive:       u.IsActive,
+		Provider:       string(u.Provider),
+		CreatedAt:      u.CreatedAt,
+		UpdatedAt:      u.UpdatedAt,
 	}
 }
 
@@ -246,48 +262,207 @@ func (ctrl *UserController) ResetPassword(c *gin.Context) {
 }
 
 func (ctrl *UserController) UpdateProfile(c *gin.Context) {
-	var req UpdateProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
+	// 1. Get the logged-in user's ID from the context (set by middleware).
 	userID, exists := c.Get("userID")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in token"})
 		return
 	}
 
+	// 2. Parse the multipart form data from the request.
+	// 10 << 20 specifies a max memory of 10 MB for the form parts.
 	err := c.Request.ParseMultipartForm(10 << 20)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error":"Invalid form data"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid form data"})
 		return
 	}
 
+	// 3. Get the 'bio' value from the form. This replaces ShouldBindJSON.
 	bio := c.Request.FormValue("bio")
+
+	// 4. Get the 'profilePicture' file from the form.
 	file, header, err := c.Request.FormFile("profilePicture")
-	
-    // It's not an error if the file is missing; it's optional.
+	// It's not an error if the file is missing; this is an optional field.
 	if err != nil && err != http.ErrMissingFile {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid file upload"})
 		return
 	}
 
+	// Ensure the file is closed if it was opened.
 	if file != nil {
 		defer file.Close()
 	}
 
-	
+	// 5. Call the usecase with the parsed data.
 	updatedUser, err := ctrl.userUsecase.UpdateProfile(c.Request.Context(), userID.(string), bio, file, header)
 	if err != nil {
-		if err == domain.ErrUserNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		} else {
-			log.Printf("UpdateProfile error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred"})
-		}
+		// Use the centralized error handler for cleaner code
+		HandleError(c, err)
 		return
 	}
 
+	// 6. On success, return the updated user object.
+	c.JSON(http.StatusOK, toUserResponse(updatedUser))
+}
+
+// SearchAndFilter handles requests for searching and filtering users.
+// This is intended for admin use.
+func (ctrl *UserController) SearchAndFilter(c *gin.Context) {
+	var options domain.UserSearchFilterOptions
+
+	// 1. Parse all optional query parameters from the request.
+	// This code is very similar to your blog search controller, demonstrating pattern reuse.
+
+	// Pagination
+	page, err := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
+	if err != nil || page < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'page' parameter"})
+		return
+	}
+	options.Page = page
+
+	limit, err := strconv.ParseInt(c.DefaultQuery("limit", "10"), 10, 64)
+	if err != nil || limit < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'limit' parameter"})
+		return
+	}
+	options.Limit = limit
+
+	// Search and Filter criteria (using pointers for optional fields)
+	if username := c.Query("username"); username != "" {
+		options.Username = &username
+	}
+	if email := c.Query("email"); email != "" {
+		options.Email = &email
+	}
+	if roleStr := c.Query("role"); roleStr != "" {
+		role := domain.Role(roleStr)
+		if !role.IsValid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'role' parameter. Must be 'user' or 'admin'."})
+			return
+		}
+		options.Role = &role
+	}
+	if isActiveStr := c.Query("isActive"); isActiveStr != "" {
+		isActive, err := strconv.ParseBool(isActiveStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'isActive' parameter. Must be 'true' or 'false'."})
+			return
+		}
+		options.IsActive = &isActive
+	}
+	if providerStr := c.Query("provider"); providerStr != "" {
+		provider := domain.AuthProvider(providerStr)
+		options.Provider = &provider
+	}
+
+	// Global Logic
+	if strings.ToUpper(c.Query("logic")) == string(domain.GlobalLogicOR) {
+		options.GlobalLogic = domain.GlobalLogicOR
+	} else {
+		options.GlobalLogic = domain.GlobalLogicAND // Default to AND
+	}
+
+	// Date range filtering (can be copied from your blog controller)
+	if startDateStr := c.Query("startDate"); startDateStr != "" {
+		if t, err := time.Parse(time.RFC3339, startDateStr); err == nil {
+			options.StartDate = &t
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'startDate' format. Use RFC3339 (e.g., 2023-10-27T10:00:00Z)"})
+			return
+		}
+	}
+	if endDateStr := c.Query("endDate"); endDateStr != "" {
+		if t, err := time.Parse(time.RFC3339, endDateStr); err == nil {
+			options.EndDate = &t
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid 'endDate' format. Use RFC3339 (e.g., 2023-10-27T10:00:00Z)"})
+			return
+		}
+	}
+
+	// Sorting
+	options.SortBy = c.Query("sortBy") // e.g., "username", "email", "createdAt"
+	if strings.ToUpper(c.Query("sortOrder")) == string(domain.SortOrderASC) {
+		options.SortOrder = domain.SortOrderASC
+	} else {
+		options.SortOrder = domain.SortOrderDESC // Default to DESC
+	}
+
+	// 2. Call the usecase with the populated options struct.
+	users, total, err := ctrl.userUsecase.SearchAndFilter(c.Request.Context(), options)
+	if err != nil {
+		// Using a generic error handler is good practice
+		log.Printf("Error searching users: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred while searching for users."})
+		return
+	}
+
+	// 3. Format and return the paginated response.
+	c.JSON(http.StatusOK, toPaginatedUserResponse(users, total, options.Page, options.Limit))
+}
+
+// toPaginatedUserResponse is a helper to format the paginated response.
+func toPaginatedUserResponse(users []*domain.User, total, page, limit int64) PaginatedUserResponse {
+	userResponses := make([]UserResponse, len(users))
+	for i, u := range users {
+		userResponses[i] = toUserResponse(u)
+	}
+
+	return PaginatedUserResponse{
+		Data: userResponses,
+		Pagination: Pagination{
+			Total: total,
+			Page:  page,
+			Limit: limit,
+		},
+	}
+}
+
+// SetUserRole handles requests to promote or demote a user.
+func (ctrl *UserController) SetUserRole(c *gin.Context) {
+	// 1. Get the target user's ID from the URL path parameter.
+	targetUserID := c.Param("userID")
+	if targetUserID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Target user ID is required in the URL path."})
+		return
+	}
+
+	// 2. Get the logged-in admin's details from the context (set by middleware).
+	actorUserID, exists := c.Get("userID")
+	if !exists {
+		// This should theoretically be caught by the middleware, but it's good practice to check.
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication details not found."})
+		return
+	}
+	actorRole, exists := c.Get("userRole")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication role not found."})
+		return
+	}
+
+	// 3. Bind and validate the JSON request body.
+	var req SetRoleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body: " + err.Error()})
+		return
+	}
+
+	// 4. Call the usecase with all the necessary information.
+	updatedUser, err := ctrl.userUsecase.SetUserRole(
+		c.Request.Context(),
+		actorUserID.(string),
+		actorRole.(domain.Role),
+		targetUserID,
+		req.NewRole,
+	)
+
+	// 5. Handle any errors returned from the usecase.
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	// 6. On success, return the updated user object.
 	c.JSON(http.StatusOK, toUserResponse(updatedUser))
 }

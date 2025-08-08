@@ -6,6 +6,8 @@ import (
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
 	"errors"
+	"mime/multipart"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +55,13 @@ func (m *MockUserRepository) FindByProviderID(ctx context.Context, provider doma
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*domain.User), args.Error(1)
+}
+func (m *MockUserRepository) SearchAndFilter(ctx context.Context, options domain.UserSearchFilterOptions) ([]*domain.User, int64, error) {
+	args := m.Called(ctx, options)
+	if args.Get(0) == nil {
+		return nil, int64(args.Int(1)), args.Error(2)
+	}
+	return args.Get(0).([]*domain.User), int64(args.Int(1)), args.Error(2)
 }
 
 type MockTokenRepository struct{ mock.Mock }
@@ -146,6 +155,24 @@ func (m *MockEmailService) SendActivationEmail(to, user, token string) error {
 	return args.Error(0)
 }
 
+type MockImageUploaderService struct{ mock.Mock }
+
+func (m *MockImageUploaderService) UploadProfilePicture(file multipart.File, header *multipart.FileHeader) (string, error) {
+	args := m.Called(file, header)
+	return args.String(0), args.Error(1)
+}
+
+type mockMultipartFile struct {
+	// Embed a strings.Reader to get Read, ReadAt, and Seek methods automatically.
+	*strings.Reader
+}
+
+// Close is the missing method that we need to add to satisfy the interface.
+// For a mock, it can simply do nothing and return nil.
+func (m *mockMultipartFile) Close() error {
+	return nil
+}
+
 // --- TEST FUNCTIONS ---
 
 func TestUserUsecase_Register(t *testing.T) {
@@ -154,7 +181,7 @@ func TestUserUsecase_Register(t *testing.T) {
 	mockTokenRepo := new(MockTokenRepository)
 	mockPassSvc := new(MockPasswordService)
 	mockEmailSvc := new(MockEmailService)
-	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJWTService, mockTokenRepo, mockEmailSvc, 2*time.Second)
+	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJWTService, mockTokenRepo, mockEmailSvc, nil, 2*time.Second)
 
 	t.Run("Success", func(t *testing.T) {
 		password := "password123"
@@ -208,7 +235,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockTokenRepo := new(MockTokenRepository)
 		mockPassSvc := new(MockPasswordService)
 		mockJwtSvc := new(MockJWTService)
-		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, 2*time.Second)
+		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
 		mockPassSvc.On("ComparePassword", *user.Password, "password123").Return(nil).Once()
@@ -236,7 +263,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockTokenRepo := new(MockTokenRepository)
 		mockPassSvc := new(MockPasswordService)
 		mockJwtSvc := new(MockJWTService)
-		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, 2*time.Second)
+		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
 		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(user, nil).Once()
 		mockPassSvc.On("ComparePassword", *user.Password, "password123").Return(nil).Once()
@@ -263,7 +290,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockTokenRepo := new(MockTokenRepository)
 		mockPassSvc := new(MockPasswordService)
 		mockJwtSvc := new(MockJWTService)
-		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, 2*time.Second)
+		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
 		googleUser := &domain.User{
 			ID:       "user-456",
@@ -289,7 +316,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockTokenRepo := new(MockTokenRepository)
 		mockPassSvc := new(MockPasswordService)
 		mockJwtSvc := new(MockJWTService)
-		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, 2*time.Second)
+		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
 		// Simulate user not found by returning (nil, nil) from the repository
 		mockUserRepo.On("GetByEmail", mock.Anything, "notfound@test.com").Return(nil, nil).Once()
@@ -308,7 +335,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockTokenRepo := new(MockTokenRepository)
 		mockPassSvc := new(MockPasswordService)
 		mockJwtSvc := new(MockJWTService)
-		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, 2*time.Second)
+		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
 		// Simulate password mismatch by returning an error from the password service
@@ -329,7 +356,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockTokenRepo := new(MockTokenRepository)
 		mockPassSvc := new(MockPasswordService)
 		mockJwtSvc := new(MockJWTService)
-		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, 2*time.Second)
+		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
 		inactiveUser := &domain.User{ID: "user-inactive", Email: "inactive@test.com", IsActive: false, Provider: domain.ProviderLocal}
 		mockUserRepo.On("GetByEmail", mock.Anything, "inactive@test.com").Return(inactiveUser, nil).Once()
@@ -346,7 +373,7 @@ func TestUserUsecase_Login(t *testing.T) {
 
 func TestUserUsecase_Logout(t *testing.T) {
 	mockTokenRepo := new(MockTokenRepository)
-	uc := usecases.NewUserUsecase(nil, nil, nil, mockTokenRepo, nil, 2*time.Second)
+	uc := usecases.NewUserUsecase(nil, nil, nil, mockTokenRepo, nil, nil, 2*time.Second)
 	token := &domain.Token{ID: "token-id", UserID: "user-123", Type: domain.TokenTypeRefresh}
 
 	t.Run("Success", func(t *testing.T) {
@@ -362,7 +389,7 @@ func TestUserUsecase_Logout(t *testing.T) {
 func TestUserUsecase_ActivateAccount(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockTokenRepo := new(MockTokenRepository)
-	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, mockTokenRepo, nil, 2*time.Second)
+	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, mockTokenRepo, nil, nil, 2*time.Second)
 	token := &domain.Token{ID: "token-id", UserID: "user-123", Type: domain.TokenTypeActivation, ExpiresAt: time.Now().Add(1 * time.Hour)}
 	user := &domain.User{ID: "user-123", IsActive: false}
 
@@ -381,7 +408,7 @@ func TestUserUsecase_ForgetPassword(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockTokenRepo := new(MockTokenRepository)
 	mockEmailSvc := new(MockEmailService)
-	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, mockTokenRepo, mockEmailSvc, 2*time.Second)
+	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, mockTokenRepo, mockEmailSvc, nil, 2*time.Second)
 	user := &domain.User{ID: "user-123", Email: "user@example.com", Username: "testuser", Provider: domain.ProviderLocal}
 
 	t.Run("Success - Local User", func(t *testing.T) {
@@ -419,7 +446,7 @@ func TestUserUsecase_ResetPassword(t *testing.T) {
 	mockUserRepo := new(MockUserRepository)
 	mockTokenRepo := new(MockTokenRepository)
 	mockPassSvc := new(MockPasswordService)
-	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, nil, mockTokenRepo, nil, 2*time.Second)
+	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, nil, mockTokenRepo, nil, nil, 2*time.Second)
 	token := &domain.Token{ID: "token-id", UserID: "user-123", Type: domain.TokenTypePasswordReset, ExpiresAt: time.Now().Add(1 * time.Hour)}
 	user := &domain.User{ID: "user-123", Provider: domain.ProviderLocal}
 
@@ -436,19 +463,331 @@ func TestUserUsecase_ResetPassword(t *testing.T) {
 }
 
 func TestUserUsecase_UpdateProfile(t *testing.T) {
-	mockUserRepo := new(MockUserRepository)
-	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, 2*time.Second)
-	user := &domain.User{ID: "user-123"}
+	userID := "user-123"
 
-	t.Run("Success", func(t *testing.T) {
-		mockUserRepo.On("GetByID", mock.Anything, "user-123").Return(user, nil).Once()
-		mockUserRepo.On("Update", mock.Anything, mock.Anything).Return(nil).Once()
+	t.Run("Success - Update bio only", func(t *testing.T) {
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+		user := &domain.User{ID: userID, Bio: "old bio", ProfilePicture: "old.url"}
 
-		updatedUser, err := uc.UpdateProfile(context.Background(), "user-123", "new bio", "new.url")
+		mockUserRepo.On("GetByID", mock.Anything, userID).Return(user, nil).Once()
+		mockUserRepo.On("Update", mock.Anything, mock.MatchedBy(func(u *domain.User) bool {
+			return u.Bio == "new bio" && u.ProfilePicture == "old.url"
+		})).Return(nil).Once()
+
+		updatedUser, err := uc.UpdateProfile(context.Background(), userID, "new bio", nil, nil)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "new bio", updatedUser.Bio)
-		assert.Equal(t, "new.url", updatedUser.ProfilePicture)
+		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Success - Update profile picture only", func(t *testing.T) {
+		mockUserRepo := new(MockUserRepository)
+		mockImageUploader := new(MockImageUploaderService)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, mockImageUploader, 2*time.Second)
+
+		newImageURL := "http://example.com/new_image.jpg"
+		userForTest := &domain.User{ID: userID, Bio: "old bio", ProfilePicture: "old.url"}
+
+		mockUserRepo.On("GetByID", mock.Anything, userID).Return(userForTest, nil).Once()
+		mockImageUploader.On("UploadProfilePicture", mock.AnythingOfType("*usecases_test.mockMultipartFile"), mock.AnythingOfType("*multipart.FileHeader")).Return(newImageURL, nil).Once()
+		mockUserRepo.On("Update", mock.Anything, mock.MatchedBy(func(u *domain.User) bool {
+			return u.ProfilePicture == newImageURL && u.Bio == "old bio"
+		})).Return(nil).Once()
+
+		mockFile := &mockMultipartFile{Reader: strings.NewReader("dummy content")}
+		mockHeader := &multipart.FileHeader{Filename: "test.jpg"}
+
+		updatedUser, err := uc.UpdateProfile(context.Background(), userID, "old bio", mockFile, mockHeader)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, updatedUser)
+		assert.Equal(t, newImageURL, updatedUser.ProfilePicture)
+		mockUserRepo.AssertExpectations(t)
+		mockImageUploader.AssertExpectations(t)
+	})
+
+	t.Run("Failure - Image upload service returns an error", func(t *testing.T) {
+		mockUserRepo := new(MockUserRepository)
+		mockImageUploader := new(MockImageUploaderService)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, mockImageUploader, 2*time.Second)
+
+		user := &domain.User{ID: userID}
+		expectedErr := errors.New("upload failed")
+
+		mockUserRepo.On("GetByID", mock.Anything, userID).Return(user, nil).Once()
+		mockImageUploader.On("UploadProfilePicture", mock.Anything, mock.Anything).Return("", expectedErr).Once()
+
+		mockFile := &mockMultipartFile{Reader: strings.NewReader("dummy content")}
+		mockHeader := &multipart.FileHeader{Filename: "test.jpg"}
+
+		_, err := uc.UpdateProfile(context.Background(), userID, "any bio", mockFile, mockHeader)
+
+		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+		mockUserRepo.AssertExpectations(t)
+		mockImageUploader.AssertExpectations(t)
+		mockUserRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything)
+	})
+
+	t.Run("Failure - User not found", func(t *testing.T) {
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		mockUserRepo.On("GetByID", mock.Anything, userID).Return(nil, domain.ErrUserNotFound).Once()
+
+		_, err := uc.UpdateProfile(context.Background(), userID, "any bio", nil, nil)
+
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrUserNotFound)
+		mockUserRepo.AssertExpectations(t)
+	})
+}
+
+func TestUserUsecase_SearchAndFilter(t *testing.T) {
+	mockUserRepo := new(MockUserRepository)
+	uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+	// Sample data to be returned by the mock repository
+	expectedUsers := []*domain.User{
+		{ID: "user-1", Username: "testuser1"},
+		{ID: "user-2", Username: "testuser2"},
+	}
+	var expectedTotal int64 = 15
+
+	t.Run("Success - Basic Search with Defaults", func(t *testing.T) {
+		// Arrange
+		// These are the options the controller would pass
+		inputOptions := domain.UserSearchFilterOptions{
+			Page:  0, // Deliberately set to 0 to test default
+			Limit: 0, // Deliberately set to 0 to test default
+		}
+
+		// This is what the repository should receive after the usecase applies defaults
+		expectedOptions := domain.UserSearchFilterOptions{
+			Page:  1,
+			Limit: 10,
+		}
+
+		mockUserRepo.On("SearchAndFilter", mock.Anything, expectedOptions).Return(expectedUsers, int(expectedTotal), nil).Once()
+
+		// Act
+		users, total, err := uc.SearchAndFilter(context.Background(), inputOptions)
+
+		// Assert
+		assert.NoError(t, err)
+		assert.Equal(t, expectedTotal, total)
+		assert.Len(t, users, 2)
+		assert.Equal(t, expectedUsers, users)
+
+		// Verify that the mock was called correctly
+		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Success - Search with Specific Pagination", func(t *testing.T) {
+		// Arrange
+		// The usecase should use these values as they are valid
+		inputOptions := domain.UserSearchFilterOptions{
+			Page:  2,
+			Limit: 20,
+		}
+
+		mockUserRepo.On("SearchAndFilter", mock.Anything, inputOptions).Return(expectedUsers, int(expectedTotal), nil).Once()
+
+		// Act
+		users, total, err := uc.SearchAndFilter(context.Background(), inputOptions)
+
+		// Assert
+		assert.NoError(t, err)
+		assert.Equal(t, expectedTotal, total)
+		assert.Equal(t, expectedUsers, users)
+
+		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Success - Max Limit is Enforced", func(t *testing.T) {
+		// Arrange
+		// The client is requesting a very large page size
+		inputOptions := domain.UserSearchFilterOptions{
+			Page:  1,
+			Limit: 500, // This is over the max limit
+		}
+
+		// The usecase should cap the limit at 100 before passing to the repo
+		expectedOptions := domain.UserSearchFilterOptions{
+			Page:  1,
+			Limit: 100, // The usecase should enforce this
+		}
+
+		mockUserRepo.On("SearchAndFilter", mock.Anything, expectedOptions).Return(expectedUsers, int(expectedTotal), nil).Once()
+
+		// Act
+		_, _, err := uc.SearchAndFilter(context.Background(), inputOptions)
+
+		// Assert
+		assert.NoError(t, err)
+		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Failure - Repository Returns an Error", func(t *testing.T) {
+		// Arrange
+		inputOptions := domain.UserSearchFilterOptions{Page: 1, Limit: 10}
+		expectedError := errors.New("database connection failed")
+
+		mockUserRepo.On("SearchAndFilter", mock.Anything, inputOptions).Return(nil, 0, expectedError).Once()
+
+		// Act
+		users, total, err := uc.SearchAndFilter(context.Background(), inputOptions)
+
+		// Assert
+		assert.Error(t, err)
+		assert.Equal(t, expectedError, err)
+		assert.Nil(t, users)
+		assert.Zero(t, total)
+
+		mockUserRepo.AssertExpectations(t)
+	})
+}
+
+func TestUserUsecase_SetUserRole(t *testing.T) {
+	// Common variables can be defined outside the sub-tests
+	adminUser := &domain.User{ID: "admin-123", Role: domain.RoleAdmin}
+	regularUser := &domain.User{ID: "user-456", Role: domain.RoleUser}
+
+	t.Run("Success - Admin promotes a User", func(t *testing.T) {
+		// Arrange: Create new mocks for this specific test case
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		targetUser := &domain.User{ID: "target-789", Role: domain.RoleUser}
+		mockUserRepo.On("GetByID", mock.Anything, "target-789").Return(targetUser, nil).Once()
+		mockUserRepo.On("Update", mock.Anything, mock.MatchedBy(func(u *domain.User) bool {
+			return u.ID == "target-789" && u.Role == domain.RoleAdmin
+		})).Return(nil).Once()
+
+		// Act
+		updatedUser, err := uc.SetUserRole(context.Background(), adminUser.ID, adminUser.Role, targetUser.ID, domain.RoleAdmin)
+
+		// Assert
+		assert.NoError(t, err)
+		assert.NotNil(t, updatedUser)
+		assert.Equal(t, domain.RoleAdmin, updatedUser.Role)
+		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Success - Admin demotes another Admin", func(t *testing.T) {
+		// Arrange: Create new mocks
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		targetUser := &domain.User{ID: "target-admin-000", Role: domain.RoleAdmin}
+		mockUserRepo.On("GetByID", mock.Anything, "target-admin-000").Return(targetUser, nil).Once()
+		mockUserRepo.On("Update", mock.Anything, mock.MatchedBy(func(u *domain.User) bool {
+			return u.ID == "target-admin-000" && u.Role == domain.RoleUser
+		})).Return(nil).Once()
+
+		// Act
+		updatedUser, err := uc.SetUserRole(context.Background(), adminUser.ID, adminUser.Role, targetUser.ID, domain.RoleUser)
+
+		// Assert
+		assert.NoError(t, err)
+		assert.NotNil(t, updatedUser)
+		assert.Equal(t, domain.RoleUser, updatedUser.Role)
+		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Success - No update needed if role is already correct", func(t *testing.T) {
+		// Arrange: Create new mocks
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		targetUser := &domain.User{ID: "target-789", Role: domain.RoleAdmin} // Already an admin
+		mockUserRepo.On("GetByID", mock.Anything, "target-789").Return(targetUser, nil).Once()
+		// Note: We do NOT set an expectation for Update.
+
+		// Act
+		updatedUser, err := uc.SetUserRole(context.Background(), adminUser.ID, adminUser.Role, targetUser.ID, domain.RoleAdmin)
+
+		// Assert
+		assert.NoError(t, err)
+		assert.Equal(t, domain.RoleAdmin, updatedUser.Role)
+		mockUserRepo.AssertExpectations(t)                                      // This will pass if only GetByID was called
+		mockUserRepo.AssertNotCalled(t, "Update", mock.Anything, mock.Anything) // This will now work correctly
+	})
+
+	t.Run("Failure - Actor is not an Admin", func(t *testing.T) {
+		// Arrange: Create new mocks
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		// Act
+		_, err := uc.SetUserRole(context.Background(), regularUser.ID, regularUser.Role, "any-target-id", domain.RoleAdmin)
+
+		// Assert
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrPermissionDenied)
+		// No expectations set on the mock, so no need to assert them.
+	})
+
+	t.Run("Failure - Admin tries to change their own role", func(t *testing.T) {
+		// Arrange: Create new mocks
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		// Act
+		_, err := uc.SetUserRole(context.Background(), adminUser.ID, adminUser.Role, adminUser.ID, domain.RoleUser)
+
+		// Assert
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrCannotChangeOwnRole)
+	})
+
+	t.Run("Failure - Target user not found", func(t *testing.T) {
+		// Arrange: Create new mocks
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		mockUserRepo.On("GetByID", mock.Anything, "non-existent-id").Return(nil, domain.ErrUserNotFound).Once()
+
+		// Act
+		_, err := uc.SetUserRole(context.Background(), adminUser.ID, adminUser.Role, "non-existent-id", domain.RoleAdmin)
+
+		// Assert
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrUserNotFound)
+		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Failure - Invalid new role provided", func(t *testing.T) {
+		// Arrange: Create new mocks
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		// Act
+		_, err := uc.SetUserRole(context.Background(), adminUser.ID, adminUser.Role, regularUser.ID, domain.Role("super-user"))
+
+		// Assert
+		assert.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrInvalidRole)
+	})
+
+	t.Run("Failure - Repository fails on Update", func(t *testing.T) {
+		// Arrange: Create new mocks
+		mockUserRepo := new(MockUserRepository)
+		uc := usecases.NewUserUsecase(mockUserRepo, nil, nil, nil, nil, nil, 2*time.Second)
+
+		targetUser := &domain.User{ID: "target-789", Role: domain.RoleUser}
+		expectedError := errors.New("database write error")
+		mockUserRepo.On("GetByID", mock.Anything, "target-789").Return(targetUser, nil).Once()
+		mockUserRepo.On("Update", mock.Anything, mock.Anything).Return(expectedError).Once()
+
+		// Act
+		_, err := uc.SetUserRole(context.Background(), adminUser.ID, adminUser.Role, targetUser.ID, domain.RoleAdmin)
+
+		// Assert
+		assert.Error(t, err)
+		assert.Equal(t, expectedError, err)
 		mockUserRepo.AssertExpectations(t)
 	})
 }
