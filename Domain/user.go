@@ -76,6 +76,8 @@ func (u *User) Validate() error {
 	if len(u.Username) > 50 {
 		return ErrUsernameTooLong
 	}
+
+	// This block is now correctly structured and not duplicated.
 	if u.Provider == ProviderLocal {
 		if u.Password == nil || *u.Password == "" {
 			return ErrPasswordEmpty
