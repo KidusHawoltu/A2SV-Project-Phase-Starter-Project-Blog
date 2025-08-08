@@ -10,8 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// UserUsecase defines the business logic required for Phase 1 & 2.
-
 // UserRepository defines the persistence operations for a User.
 type UserRepository interface {
 	Create(ctx context.Context, user *domain.User) error
@@ -20,6 +18,7 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	FindUserIDsByName(ctx context.Context, authorName string) ([]string, error)
+	FindByProviderID(ctx context.Context, provider domain.AuthProvider, providerID string) (*domain.User, error)
 }
 
 type TokenRepository interface {
@@ -83,13 +82,14 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 		return domain.ErrUsernameExists
 	}
 
-	hashedPassword, err := uc.passwordService.HashPassword(user.Password)
+	hashedPassword, err := uc.passwordService.HashPassword(*(user.Password))
 	if err != nil {
 		return err
 	}
-	user.Password = hashedPassword
+	user.Password = &hashedPassword
 	user.Role = domain.RoleUser
 	user.IsActive = false
+	user.Provider = domain.ProviderLocal
 
 	if err := uc.userRepo.Create(ctx, user); err != nil {
 		return err
@@ -156,11 +156,15 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 		return "", "", domain.ErrAuthenticationFailed //user not found
 	}
 
+	if user.Provider != domain.ProviderLocal {
+		return "", "", domain.ErrOAuthUser
+	}
+
 	if !user.IsActive {
 		return "", "", domain.ErrAccountNotActive
 	}
 
-	err = uc.passwordService.ComparePassword(user.Password, password)
+	err = uc.passwordService.ComparePassword(*(user.Password), password)
 	if err != nil {
 		return "", "", domain.ErrAuthenticationFailed
 	}
@@ -264,6 +268,13 @@ func (uc *userUsecase) ForgetPassword(c context.Context, email string) error {
 		return nil // Prevent email enumeration attacks.
 	}
 
+	if user.Provider != domain.ProviderLocal {
+		// We still return nil to prevent leaking information about which emails
+		// are registered with OAuth providers.
+		// You could log this event for monitoring.
+		return nil
+	}
+
 	// Delete previous reset tokens for this user.
 	if err := uc.tokenRepo.DeleteByUserID(ctx, user.ID, domain.TokenTypePasswordReset); err != nil {
 		return err
@@ -297,6 +308,9 @@ func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPass
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
 	}
+	if user.Provider != domain.ProviderLocal {
+		return domain.ErrOAuthUser
+	}
 	if len(newPassword) < 8 {
 		return domain.ErrPasswordTooShort
 	}
@@ -306,7 +320,7 @@ func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPass
 		return err
 	}
 
-	user.Password = hashedPassword
+	user.Password = &hashedPassword
 	user.UpdatedAt = time.Now()
 
 	if err := uc.userRepo.Update(ctx, user); err != nil {

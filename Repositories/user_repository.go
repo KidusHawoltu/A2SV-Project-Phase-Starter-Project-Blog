@@ -12,22 +12,26 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// userMongo is the data model for the database.
-type userMongo struct {
+// UserMongo is the data model for the database.
+type UserMongo struct {
 	ID             primitive.ObjectID `bson:"_id,omitempty"`
 	Username       string             `bson:"username"`
 	Email          string             `bson:"email"`
-	IsActive       string             `bson:"isActive"`
-	Password       string             `bson:"password"`
+	IsActive       bool               `bson:"isActive"`
+	Password       *string            `bson:"password"`
 	Role           domain.Role        `bson:"role"`
 	Bio            string             `bson:"bio,omitempty"`
 	ProfilePicture string             `bson:"profilePicture,omitempty"`
-	CreatedAt      time.Time          `bson:"createdAt"`
-	UpdatedAt      time.Time          `bson:"updatedAt"`
+
+	Provider   string `bson:"provider"`
+	ProviderID string `bson:"providerId,omitempty"`
+
+	CreatedAt time.Time `bson:"createdAt"`
+	UpdatedAt time.Time `bson:"updatedAt"`
 }
 
 // Mappers
-func toUserDomain(u userMongo) *domain.User {
+func toUserDomain(u UserMongo) *domain.User {
 	return &domain.User{
 		ID:             u.ID.Hex(),
 		Username:       u.Username,
@@ -36,17 +40,19 @@ func toUserDomain(u userMongo) *domain.User {
 		Role:           u.Role,
 		Bio:            u.Bio,
 		ProfilePicture: u.ProfilePicture,
+		Provider:       domain.AuthProvider(u.Provider),
+		ProviderID:     u.ProviderID,
 		CreatedAt:      u.CreatedAt,
 		UpdatedAt:      u.UpdatedAt,
 	}
 }
 
-func fromUserDomain(u domain.User) userMongo {
+func fromUserDomain(u domain.User) UserMongo {
 	var objectID primitive.ObjectID
 	if id, err := primitive.ObjectIDFromHex(u.ID); err == nil {
 		objectID = id
 	}
-	return userMongo{
+	return UserMongo{
 		ID:             objectID,
 		Username:       u.Username,
 		Email:          u.Email,
@@ -54,6 +60,8 @@ func fromUserDomain(u domain.User) userMongo {
 		Role:           u.Role,
 		Bio:            u.Bio,
 		ProfilePicture: u.ProfilePicture,
+		Provider:       string(u.Provider),
+		ProviderID:     u.ProviderID,
 		CreatedAt:      u.CreatedAt,
 		UpdatedAt:      u.UpdatedAt,
 	}
@@ -75,13 +83,21 @@ func (r *mongoUserRepository) Create(ctx context.Context, user *domain.User) err
 	now := time.Now()
 	mongoModel.CreatedAt = now
 	mongoModel.UpdatedAt = now
+	mongoModel.ID = primitive.NewObjectID()
 
 	_, err := r.collection.InsertOne(ctx, mongoModel)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Update the domain object with the generated ID
+	user.ID = mongoModel.ID.Hex()
+
+	return nil
 }
 
 func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	var mongoModel userMongo
+	var mongoModel UserMongo
 	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&mongoModel)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -94,7 +110,7 @@ func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*do
 
 // GetByUsername fetches a single user by their username.
 func (r *mongoUserRepository) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
-	var mongoModel userMongo
+	var mongoModel UserMongo
 	err := r.collection.FindOne(ctx, bson.M{"username": username}).Decode(&mongoModel)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -111,7 +127,7 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 		return nil, domain.ErrUserNotFound // Invalid ID format
 	}
 
-	var mongoModel userMongo
+	var mongoModel UserMongo
 	err = r.collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&mongoModel)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -122,25 +138,26 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 	return toUserDomain(mongoModel), nil
 }
 
-
-func(r *mongoUserRepository) Update(ctx context.Context, user *domain.User) error {
-	ObjectID, err := primitive.ObjectIDFromHex(user.ID)
+func (r *mongoUserRepository) Update(ctx context.Context, user *domain.User) error {
+	objectID, err := primitive.ObjectIDFromHex(user.ID)
 	if err != nil {
 		return domain.ErrUserNotFound
 	}
 	user.UpdatedAt = time.Now()
-	update := bson.M{
-		"$set": bson.M{
-			"bio":  user.Bio,
-			"profilePicture": user.ProfilePicture,
-			"updatedAt": user.UpdatedAt,
-			"password": user.UpdatedAt,
-		},
-	}
+	mongoModel := fromUserDomain(*user)
 
-	_, err = r.collection.UpdateByID(ctx, ObjectID, update)
-	return err 
+	update := bson.M{"$set": mongoModel}
+
+	res, err := r.collection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return usecases.ErrNotFound
+	}
+	return nil
 }
+
 func (r *mongoUserRepository) FindUserIDsByName(ctx context.Context, authorName string) ([]string, error) {
 	// We want to find all users where the username matches, case-insensitively.
 	filter := bson.M{"username": bson.M{"$regex": authorName, "$options": "i"}}
@@ -171,4 +188,22 @@ func (r *mongoUserRepository) FindUserIDsByName(ctx context.Context, authorName 
 	}
 
 	return ids, nil
+}
+
+// FindByProviderID finds a user by their external provider ID (e.g., from Google).
+func (r *mongoUserRepository) FindByProviderID(ctx context.Context, provider domain.AuthProvider, providerID string) (*domain.User, error) {
+	filter := bson.M{
+		"provider":   string(provider),
+		"providerId": providerID,
+	}
+
+	var mongoModel UserMongo
+	err := r.collection.FindOne(ctx, filter).Decode(&mongoModel)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil // Return (nil, nil) when no user is found
+		}
+		return nil, err
+	}
+	return toUserDomain(mongoModel), nil
 }

@@ -2,6 +2,8 @@ package domain
 
 import (
 	"context"
+
+	"golang.org/x/oauth2"
 )
 
 type IBlogUsecase interface {
@@ -79,4 +81,20 @@ type ICommentUsecase interface {
 	GetCommentsForBlog(ctx context.Context, blogID string, page, limit int64) ([]*Comment, int64, error)
 
 	GetRepliesForComment(ctx context.Context, parentID string, page, limit int64) ([]*Comment, int64, error)
+}
+
+type IOAuthUsecase interface {
+	HandleGoogleCallback(ctx context.Context, code string) (accessToken string, refreshToken string, err error)
+}
+
+type GoogleUserInfo struct {
+	ID                string
+	Email             string
+	Name              string
+	ProfilePictureURL string
+}
+
+type IGoogleOAuthService interface {
+	ExchangeCodeForToken(ctx context.Context, code string) (*oauth2.Token, error)
+	GetUserInfo(ctx context.Context, token *oauth2.Token) (*GoogleUserInfo, error)
 }

@@ -7,29 +7,34 @@ import (
 )
 
 type Role string
+type AuthProvider string
 
 const (
-	RoleUser 		Role = "user"
-	RoleAdmin 	Role = "admin"
+	RoleUser       Role         = "user"
+	RoleAdmin      Role         = "admin"
+	ProviderLocal  AuthProvider = "local"
+	ProviderGoogle AuthProvider = "google"
 )
 
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
 
 // User represents the bare minimum for a user in the application.
-type User struct{
-	ID 							string
-	Username 				string
-	Password 				string
-	Email 					string
-	IsActive        bool
-	Role 						Role
-	Bio 						string
-	ProfilePicture 	string
-	CreatedAt 			time.Time
-	UpdatedAt 			time.Time
+type User struct {
+	ID             string
+	Username       string
+	Password       *string
+	Email          string
+	IsActive       bool
+	Role           Role
+	Bio            string
+	ProfilePicture string
+
+	Provider   AuthProvider
+	ProviderID string
+
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
-
-
 
 // IsValid checks if the role is one of the predefined valid roles.
 func (r Role) IsValid() bool {
@@ -48,12 +53,13 @@ func (u *User) Validate() error {
 	if len(u.Username) > 50 {
 		return ErrUsernameTooLong
 	}
-	if u.Password == "" {
-		return ErrPasswordEmpty
-	}
-	// Note: We check password length on the raw password, not the hash.
-	if len(u.Password) < 8 {
-		return ErrPasswordTooShort
+	if u.Provider == ProviderLocal {
+		if u.Password == nil || *u.Password == "" {
+			return ErrPasswordEmpty
+		}
+		if len(*u.Password) < 8 {
+			return ErrPasswordTooShort
+		}
 	}
 	if _, err := mail.ParseAddress(u.Email); err != nil || !emailRegex.MatchString(u.Email) {
 		return ErrInvalidEmailFormat

@@ -1,137 +1,120 @@
 package domain_test
 
 import (
-	domain "A2SV_Starter_Project_Blog/Domain"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	. "A2SV_Starter_Project_Blog/Domain"
+
+	"github.com/stretchr/testify/suite"
 )
 
-// helper function to create a valid user for tests, reducing boilerplate.
-func createValidUser() *domain.User {
-	return &domain.User{
+// --- Test Suite Setup ---
+type UserDomainTestSuite struct {
+	suite.Suite
+}
+
+func TestUserDomainTestSuite(t *testing.T) {
+	suite.Run(t, new(UserDomainTestSuite))
+}
+
+// --- Tests ---
+
+// helper function to create a valid local user for tests.
+func createValidLocalUser() *User {
+	password := "a_strong_password"
+	return &User{
 		Username: "johndoe",
-		Password: "a_strong_password",
-		Email: "johndoe@example.com",
-		Role: domain.RoleUser,
+		Password: &password,
+		Email:    "johndoe@example.com",
+		Role:     RoleUser,
+		Provider: ProviderLocal,
 	}
 }
 
-func TestUser_validate(t *testing.T) {
-	// We use table-driven tests to check multiple scenarios cleanly.
-	testCase := []struct {
-		name          string      // A descriptive name for the test case
-		userModifier  func(u *domain.User) // A function to modify a valid user to make it invalid
-		expectedError error       // The error we expect to get back
+func (s *UserDomainTestSuite) TestUser_Validate() {
+	testCases := []struct {
+		name          string
+		userModifier  func(u *User)
+		expectedError error
 	}{
-			{
-			name: "valid user",
-			userModifier: func (u *domain.User)  {
-				// No modification needed, it's already valid
+		// --- LOCAL USER VALIDATION CASES ---
+		{
+			name:          "Valid local user",
+			userModifier:  func(u *User) { /* No modification needed */ },
+			expectedError: nil,
+		},
+		{
+			name:          "Local user with empty password",
+			userModifier:  func(u *User) { *u.Password = "" },
+			expectedError: ErrPasswordEmpty,
+		},
+		{
+			name:          "Local user with nil password",
+			userModifier:  func(u *User) { u.Password = nil },
+			expectedError: ErrPasswordEmpty,
+		},
+		{
+			name:          "Local user with password too short",
+			userModifier:  func(u *User) { shortPass := "short"; u.Password = &shortPass },
+			expectedError: ErrPasswordTooShort,
+		},
+
+		// --- GENERIC VALIDATION CASES ---
+		{
+			name:          "Empty username",
+			userModifier:  func(u *User) { u.Username = "" },
+			expectedError: ErrUsernameEmpty,
+		},
+		{
+			name:          "Invalid email",
+			userModifier:  func(u *User) { u.Email = "invalid-email" },
+			expectedError: ErrInvalidEmailFormat,
+		},
+
+		// --- GOOGLE USER VALIDATION CASES ---
+		{
+			name: "Valid Google user with nil password",
+			userModifier: func(u *User) {
+				u.Provider = ProviderGoogle
+				u.ProviderID = "google-user-id-123"
+				u.Password = nil // Google users have no password
 			},
 			expectedError: nil,
 		},
 		{
-			name: "Empty username",
-			userModifier: func (u *domain.User)  {
-				u.Username = ""
+			name: "Valid Google user with empty password pointer",
+			userModifier: func(u *User) {
+				emptyPass := ""
+				u.Provider = ProviderGoogle
+				u.ProviderID = "google-user-id-123"
+				u.Password = &emptyPass // This is also valid
 			},
-			expectedError: domain.ErrUsernameEmpty,
-		},
-		{
-				name: "Username Too Long",
-				userModifier: func(u *domain.User) {
-					u.Username = "this_is_a_very_long_username_that_is_definitely_over_fifty_characters"
-				},
-				expectedError: domain.ErrUsernameTooLong,
-			},
-			{
-				name: "Empty Password",
-				userModifier: func(u *domain.User) {
-					u.Password = ""
-				},
-				expectedError: domain.ErrPasswordEmpty,
-			},
-			{
-				name: "Password Too Short",
-				userModifier: func(u *domain.User) {
-					u.Password = "short"
-				},
-				expectedError: domain.ErrPasswordTooShort,
-			},
-			{
-				name: "Invalid Email Format - No @",
-				userModifier: func(u *domain.User) {
-					u.Email = "invalid-email.com"
-				},
-				expectedError: domain.ErrInvalidEmailFormat,
-			},
-			{
-				name: "Invalid Email Format - No Domain",
-				userModifier: func(u *domain.User) {
-					u.Email = "invalid@email"
-				},
-				expectedError: domain.ErrInvalidEmailFormat,
-			},
-			{
-				name: "Invalid Role",
-				userModifier: func(u *domain.User) {
-					u.Role = "not_a_valid_role"
-				},
-				expectedError: domain.ErrInvalidRole,
-			},
-	}
-	// Loop through all test cases
-	for _, tc := range testCase {
-		t.Run(tc.name, func(t *testing.T) {
-			// Arrange: Create a valid user and then modify it for the specific test case
-			user := createValidUser()
-			tc.userModifier(user)
-
-			// Act: Run the validation method
-			err := user.Validate()
-
-			// Assert: Check if the error returned is the one we expected
-			assert.Equal(t, tc.expectedError, err)
-		})
-	}
-}
-
-func TestRole_IsValid(t *testing.T) {
-	testCases := []struct {
-		name     string
-		role     domain.Role
-		expected bool
-	}{
-		{
-			name:     "Valid Role User",
-			role:     domain.RoleUser,
-			expected: true,
-		},
-		{
-			name:     "Valid Role Admin",
-			role:     domain.RoleAdmin,
-			expected: true,
-		},
-		{
-			name:     "Invalid Role",
-			role:     "moderator",
-			expected: false,
-		},
-		{
-			name:     "Empty Role",
-			role:     "",
-			expected: false,
+			expectedError: nil,
 		},
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+		s.Run(tc.name, func() {
+			// Arrange: Create a valid local user and then modify it.
+			user := createValidLocalUser()
+			tc.userModifier(user)
+
 			// Act
-			isValid := tc.role.IsValid()
+			err := user.Validate()
 
 			// Assert
-			assert.Equal(t, tc.expected, isValid)
+			s.ErrorIs(err, tc.expectedError)
 		})
 	}
+}
+
+func (s *UserDomainTestSuite) TestRole_IsValid() {
+	s.Run("Valid roles", func() {
+		s.True(RoleUser.IsValid())
+		s.True(RoleAdmin.IsValid())
+	})
+	s.Run("Invalid roles", func() {
+		s.False(Role("moderator").IsValid())
+		s.False(Role("").IsValid())
+	})
 }

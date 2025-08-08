@@ -7,6 +7,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.10.0
 	golang.org/x/net v0.42.0
+	golang.org/x/oauth2 v0.30.0
 	google.golang.org/api v0.244.0
 	gopkg.in/gomail.v2 v2.0.0-20160411212932-81ebce5c23df
 )
@@ -58,7 +59,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.36.0 // indirect
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/text v0.27.0 // indirect

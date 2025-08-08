@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	domain "A2SV_Starter_Project_Blog/Domain"
 	. "A2SV_Starter_Project_Blog/Usecases"
@@ -33,7 +34,7 @@ type AIUsecaseTestSuite struct {
 
 func (s *AIUsecaseTestSuite) SetupTest() {
 	s.mockAIService = new(MockAIService)
-	s.usecase = NewAIUsecase(s.mockAIService)
+	s.usecase = NewAIUsecase(s.mockAIService, 45*time.Second)
 }
 
 func TestAIUsecaseTestSuite(t *testing.T) {
