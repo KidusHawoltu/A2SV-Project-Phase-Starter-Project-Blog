@@ -2,34 +2,44 @@ package infrastructure
 
 import (
 	"fmt"
-	"net/smtp"
+
+	"gopkg.in/gomail.v2"
 )
 
-// EmailService defins the contract for sending emails.
+// EmailService defines the contract for sending emails.
 type EmailService interface {
 	SendPasswordResetEmail(toEmail, username, resetToken string) error
 	SendActivationEmail(toEmail, username, activationToken string) error
 }
 
-type smtpEmailService struct {
+// dialer interface allows mocking the gomail.Dialer
+type dialer interface {
+	DialAndSend(...*gomail.Message) error
+}
+
+type SmtpEmailService struct {
 	host     string
 	port     int
 	username string
 	password string
 	from     string
+	dialer   dialer
 }
 
 func NewSMTPEmailService(host string, port int, username, password, from string) EmailService {
-	return &smtpEmailService{
+	d := gomail.NewDialer(host, port, username, password)
+
+	return &SmtpEmailService{
 		host:     host,
 		port:     port,
 		username: username,
 		password: password,
 		from:     from,
+		dialer:   d,
 	}
 }
 
-func (s *smtpEmailService) SendPasswordResetEmail(toEmail, username, resetToken string) error {
+func (s *SmtpEmailService) SendPasswordResetEmail(toEmail, username, resetToken string) error {
 	subject := "Reset Your Password"
 	body := fmt.Sprintf(`
 	Hi %s,
@@ -48,7 +58,7 @@ func (s *smtpEmailService) SendPasswordResetEmail(toEmail, username, resetToken 
 	return s.send(toEmail, subject, body)
 }
 
-func (s *smtpEmailService) SendActivationEmail(toEmail, username, activationToken string) error {
+func (s *SmtpEmailService) SendActivationEmail(toEmail, username, activationToken string) error {
 	subject := "Activate Your Account"
 	body := fmt.Sprintf(`
 	Hi %s,
@@ -67,13 +77,13 @@ func (s *smtpEmailService) SendActivationEmail(toEmail, username, activationToke
 	return s.send(toEmail, subject, body)
 }
 
-func (s *smtpEmailService) send(to, subject, body string) error {
-	auth := smtp.PlainAuth("", s.username, s.password, s.host)
+func (s *SmtpEmailService) send(to, subject, body string) error {
+	m := gomail.NewMessage()
 
-	message := []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
-		s.from, to, subject, body))
+	m.SetHeader("From", s.from)
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/plain", body)
 
-	addr := fmt.Sprintf("%s:%d", s.host, s.port)
-
-	return smtp.SendMail(addr, auth, s.from, []string{to}, message)
+	return s.dialer.DialAndSend(m)
 }
