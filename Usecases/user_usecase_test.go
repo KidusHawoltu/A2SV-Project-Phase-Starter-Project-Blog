@@ -215,7 +215,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockPassSvc := new(MockPasswordService)
 		mockJwtSvc := new(MockJWTService)
 		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
-
+		// Arrange
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
 		mockPassSvc.On("ComparePassword", *user.Password, "password123").Return(nil).Once()
 		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("access.token", accessClaims, nil).Once()
@@ -239,7 +239,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockPassSvc := new(MockPasswordService)
 		mockJwtSvc := new(MockJWTService)
 		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
-
+		// Arrange
 		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(user, nil).Once()
 		mockPassSvc.On("ComparePassword", *user.Password, "password123").Return(nil).Once()
 		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("access.token", accessClaims, nil).Once()
