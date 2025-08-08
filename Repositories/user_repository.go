@@ -14,9 +14,13 @@ import (
 
 // UserMongo is the data model for the database.
 type UserMongo struct {
+// UserMongo is the data model for the database.
+type UserMongo struct {
 	ID             primitive.ObjectID `bson:"_id,omitempty"`
 	Username       string             `bson:"username"`
 	Email          string             `bson:"email"`
+	IsActive       bool               `bson:"isActive"`
+	Password       *string            `bson:"password"`
 	IsActive       bool               `bson:"isActive"`
 	Password       *string            `bson:"password"`
 	Role           domain.Role        `bson:"role"`
@@ -28,9 +32,16 @@ type UserMongo struct {
 
 	CreatedAt time.Time `bson:"createdAt"`
 	UpdatedAt time.Time `bson:"updatedAt"`
+
+	Provider   string `bson:"provider"`
+	ProviderID string `bson:"providerId,omitempty"`
+
+	CreatedAt time.Time `bson:"createdAt"`
+	UpdatedAt time.Time `bson:"updatedAt"`
 }
 
 // Mappers
+func toUserDomain(u UserMongo) *domain.User {
 func toUserDomain(u UserMongo) *domain.User {
 	return &domain.User{
 		ID:             u.ID.Hex(),
@@ -42,16 +53,20 @@ func toUserDomain(u UserMongo) *domain.User {
 		ProfilePicture: u.ProfilePicture,
 		Provider:       domain.AuthProvider(u.Provider),
 		ProviderID:     u.ProviderID,
+		Provider:       domain.AuthProvider(u.Provider),
+		ProviderID:     u.ProviderID,
 		CreatedAt:      u.CreatedAt,
 		UpdatedAt:      u.UpdatedAt,
 	}
 }
 
 func fromUserDomain(u domain.User) UserMongo {
+func fromUserDomain(u domain.User) UserMongo {
 	var objectID primitive.ObjectID
 	if id, err := primitive.ObjectIDFromHex(u.ID); err == nil {
 		objectID = id
 	}
+	return UserMongo{
 	return UserMongo{
 		ID:             objectID,
 		Username:       u.Username,
@@ -60,6 +75,8 @@ func fromUserDomain(u domain.User) UserMongo {
 		Role:           u.Role,
 		Bio:            u.Bio,
 		ProfilePicture: u.ProfilePicture,
+		Provider:       string(u.Provider),
+		ProviderID:     u.ProviderID,
 		Provider:       string(u.Provider),
 		ProviderID:     u.ProviderID,
 		CreatedAt:      u.CreatedAt,
@@ -84,8 +101,17 @@ func (r *mongoUserRepository) Create(ctx context.Context, user *domain.User) err
 	mongoModel.CreatedAt = now
 	mongoModel.UpdatedAt = now
 	mongoModel.ID = primitive.NewObjectID()
+	mongoModel.ID = primitive.NewObjectID()
 
 	_, err := r.collection.InsertOne(ctx, mongoModel)
+	if err != nil {
+		return err
+	}
+
+	// Update the domain object with the generated ID
+	user.ID = mongoModel.ID.Hex()
+
+	return nil
 	if err != nil {
 		return err
 	}
@@ -97,6 +123,7 @@ func (r *mongoUserRepository) Create(ctx context.Context, user *domain.User) err
 }
 
 func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	var mongoModel UserMongo
 	var mongoModel UserMongo
 	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&mongoModel)
 	if err != nil {
@@ -110,6 +137,7 @@ func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*do
 
 // GetByUsername fetches a single user by their username.
 func (r *mongoUserRepository) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
+	var mongoModel UserMongo
 	var mongoModel UserMongo
 	err := r.collection.FindOne(ctx, bson.M{"username": username}).Decode(&mongoModel)
 	if err != nil {
@@ -128,6 +156,7 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 	}
 
 	var mongoModel UserMongo
+	var mongoModel UserMongo
 	err = r.collection.FindOne(ctx, bson.M{"_id": objectID}).Decode(&mongoModel)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
@@ -140,10 +169,26 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 
 func (r *mongoUserRepository) Update(ctx context.Context, user *domain.User) error {
 	objectID, err := primitive.ObjectIDFromHex(user.ID)
+func (r *mongoUserRepository) Update(ctx context.Context, user *domain.User) error {
+	objectID, err := primitive.ObjectIDFromHex(user.ID)
 	if err != nil {
 		return domain.ErrUserNotFound
 	}
 	user.UpdatedAt = time.Now()
+	mongoModel := fromUserDomain(*user)
+
+	update := bson.M{"$set": mongoModel}
+
+	res, err := r.collection.UpdateOne(ctx, bson.M{"_id": objectID}, update)
+	if err != nil {
+		return err
+	}
+	if res.MatchedCount == 0 {
+		return usecases.ErrNotFound
+	}
+	return nil
+}
+
 	mongoModel := fromUserDomain(*user)
 
 	update := bson.M{"$set": mongoModel}
