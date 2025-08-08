@@ -165,10 +165,6 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 		return "", "", domain.ErrOAuthUser
 	}
 
-	if user.Provider != domain.ProviderLocal {
-		return "", "", domain.ErrOAuthUser
-	}
-
 	if !user.IsActive {
 		return "", "", domain.ErrAccountNotActive
 	}
@@ -374,15 +370,12 @@ func (uc *userUsecase) SearchAndFilter(c context.Context, options domain.UserSea
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
-	// 1. Apply business rule defaults for pagination.
-	// This prevents overly large queries and ensures consistent behavior.
 	if options.Page <= 0 {
 		options.Page = 1
 	}
 	if options.Limit <= 0 {
-		options.Limit = 10 // Default to 10 results per page
+		options.Limit = 10
 	}
-	// Enforce a maximum limit to protect the system.
 	if options.Limit > 100 {
 		options.Limit = 100
 	}
@@ -394,39 +387,32 @@ func (uc *userUsecase) SetUserRole(ctx context.Context, actorUserID string, acto
 	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
 	defer cancel()
 
-	// 1. Authorization Check: Only admins can perform this action.
 	if actorRole != domain.RoleAdmin {
 		return nil, domain.ErrPermissionDenied
 	}
 
-	// 2. Self-Modification Check: Admins cannot change their own role.
 	if actorUserID == targetUserID {
 		return nil, domain.ErrCannotChangeOwnRole
 	}
 
-	// 3. New Role Validation: Ensure the new role is a valid one.
 	if !newRole.IsValid() {
 		return nil, domain.ErrInvalidRole
 	}
 
-	// 4. Fetch the target user from the repository.
 	targetUser, err := uc.userRepo.GetByID(ctx, targetUserID)
 	if err != nil {
-		// This will correctly return domain.ErrUserNotFound if the user doesn't exist.
 		return nil, err
 	}
 
-	// 5. Redundancy Check: If the role is already correct, do nothing.
 	if targetUser.Role == newRole {
-		return targetUser, nil // Success, no update needed.
+		return targetUser, nil
 	}
 
-	// 6. Update the user's role and save.
 	targetUser.Role = newRole
 	targetUser.UpdatedAt = time.Now()
 
 	if err := uc.userRepo.Update(ctx, targetUser); err != nil {
-		return nil, err // Handle potential database update errors.
+		return nil, err
 	}
 
 	return targetUser, nil

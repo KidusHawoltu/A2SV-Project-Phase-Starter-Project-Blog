@@ -214,7 +214,6 @@ func (s *UserRepositorySuite) TestFindUserIDsByName() {
 
 func (s *UserRepositorySuite) TestFindByProviderID() {
 	ctx := context.Background()
-	// Arrange: Create a Google user to be found
 	user := &domain.User{
 		Username:   "provideruser",
 		Email:      "provider@test.com",
