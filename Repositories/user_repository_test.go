@@ -63,10 +63,58 @@ func (s *UserRepositorySuite) TestCreate() {
 			Role:     domain.RoleUser,
 			Provider: domain.ProviderLocal,
 		}
+		ctx := context.Background()
+		s.Run("Create Local User", func() {
+			password := "hashedpassword"
+			user := &domain.User{
+				Username: "testuser",
+				Email:    "create@test.com",
+				Password: &password,
+				Role:     domain.RoleUser,
+				Provider: domain.ProviderLocal,
+			}
 
-		err := s.repository.Create(ctx, user)
-		s.Require().NoError(err)
+			err := s.repository.Create(ctx, user)
+			s.Require().NoError(err)
+			err := s.repository.Create(ctx, user)
+			s.Require().NoError(err)
 
+			// Verify the user was actually created in the DB
+			var createdUser repositories.UserMongo
+			err = s.collection.FindOne(ctx, bson.M{"email": "create@test.com"}).Decode(&createdUser)
+			s.Require().NoError(err)
+			s.Equal("testuser", createdUser.Username)
+			s.Equal(string(domain.ProviderLocal), createdUser.Provider)
+			s.Require().NotNil(createdUser.Password)
+			s.Equal(password, *createdUser.Password)
+		})
+
+		s.Run("Create Google User", func() {
+			// Arrange
+			user := &domain.User{
+				Username:   "googleuser",
+				Email:      "google@test.com",
+				Password:   nil, // Google users have no password
+				Role:       domain.RoleUser,
+				Provider:   domain.ProviderGoogle,
+				ProviderID: "google-id-12345",
+			}
+
+			// Act
+			err := s.repository.Create(ctx, user)
+			s.Require().NoError(err)
+			s.NotEmpty(user.ID)
+
+			// Assert: Verify directly from the DB
+			var createdUser repositories.UserMongo
+			objID, _ := primitive.ObjectIDFromHex(user.ID)
+			err = s.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&createdUser)
+			s.Require().NoError(err)
+			s.Equal("googleuser", createdUser.Username)
+			s.Equal(string(domain.ProviderGoogle), createdUser.Provider)
+			s.Equal("google-id-12345", createdUser.ProviderID)
+			s.Nil(createdUser.Password, "Password field should be nil for Google user")
+		})
 		// Verify the user was actually created in the DB
 		var createdUser repositories.UserMongo
 		err = s.collection.FindOne(ctx, bson.M{"email": "create@test.com"}).Decode(&createdUser)
@@ -108,9 +156,11 @@ func (s *UserRepositorySuite) TestCreate() {
 func (s *UserRepositorySuite) TestGetByEmail() {
 	// Arrange: Insert a user directly into the DB for testing
 	password := "hashedpassword"
+	password := "hashedpassword"
 	user := &domain.User{
 		Username: "getbyemail",
 		Email:    "get@test.com",
+		Password: &password,
 		Password: &password,
 		Role:     domain.RoleUser,
 	}

@@ -91,12 +91,15 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 	}
 
 	hashedPassword, err := uc.passwordService.HashPassword(*(user.Password))
+	hashedPassword, err := uc.passwordService.HashPassword(*(user.Password))
 	if err != nil {
 		return err
 	}
 	user.Password = &hashedPassword
+	user.Password = &hashedPassword
 	user.Role = domain.RoleUser
 	user.IsActive = false
+	user.Provider = domain.ProviderLocal
 	user.Provider = domain.ProviderLocal
 
 	if err := uc.userRepo.Create(ctx, user); err != nil {
@@ -168,10 +171,15 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 		return "", "", domain.ErrOAuthUser
 	}
 
+	if user.Provider != domain.ProviderLocal {
+		return "", "", domain.ErrOAuthUser
+	}
+
 	if !user.IsActive {
 		return "", "", domain.ErrAccountNotActive
 	}
 
+	err = uc.passwordService.ComparePassword(*(user.Password), password)
 	err = uc.passwordService.ComparePassword(*(user.Password), password)
 	if err != nil {
 		return "", "", domain.ErrAuthenticationFailed
@@ -283,6 +291,13 @@ func (uc *userUsecase) ForgetPassword(c context.Context, email string) error {
 		return nil
 	}
 
+	if user.Provider != domain.ProviderLocal {
+		// We still return nil to prevent leaking information about which emails
+		// are registered with OAuth providers.
+		// You could log this event for monitoring.
+		return nil
+	}
+
 	// Delete previous reset tokens for this user.
 	if err := uc.tokenRepo.DeleteByUserID(ctx, user.ID, domain.TokenTypePasswordReset); err != nil {
 		return err
@@ -319,6 +334,9 @@ func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPass
 	if user.Provider != domain.ProviderLocal {
 		return domain.ErrOAuthUser
 	}
+	if user.Provider != domain.ProviderLocal {
+		return domain.ErrOAuthUser
+	}
 	if len(newPassword) < 8 {
 		return domain.ErrPasswordTooShort
 	}
@@ -328,6 +346,7 @@ func (uc *userUsecase) ResetPassword(c context.Context, resetTokenValue, newPass
 		return err
 	}
 
+	user.Password = &hashedPassword
 	user.Password = &hashedPassword
 	user.UpdatedAt = time.Now()
 

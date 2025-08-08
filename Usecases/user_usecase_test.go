@@ -186,8 +186,15 @@ func TestUserUsecase_Register(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		password := "password123"
 		user := &domain.User{Username: "test", Email: "test@test.com", Password: &password, Role: domain.RoleUser}
+		password := "password123"
+		user := &domain.User{Username: "test", Email: "test@test.com", Password: &password, Role: domain.RoleUser}
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(nil, nil).Once()
 		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(nil, nil).Once()
+		mockPassSvc.On("HashPassword", *user.Password).Return("hashed_password", nil).Once()
+		mockUserRepo.On("Create", mock.Anything, mock.MatchedBy(func(u *domain.User) bool {
+			// Assert that the usecase correctly set the Provider to Local.
+			return u.Provider == domain.ProviderLocal
+		})).Return(nil).Once()
 		mockPassSvc.On("HashPassword", *user.Password).Return("hashed_password", nil).Once()
 		mockUserRepo.On("Create", mock.Anything, mock.MatchedBy(func(u *domain.User) bool {
 			// Assert that the usecase correctly set the Provider to Local.
@@ -205,13 +212,16 @@ func TestUserUsecase_Register(t *testing.T) {
 func TestUserUsecase_Login(t *testing.T) {
 	// A single, well-defined user for all success tests.
 	password := "hashed_password"
+	password := "hashed_password"
 	user := &domain.User{
 		ID:       "user-123",
 		Email:    "test@test.com",
 		Username: "testuser",
 		Password: &password,
+		Password: &password,
 		IsActive: true,
 		Role:     domain.RoleUser,
+		Provider: domain.ProviderLocal,
 		Provider: domain.ProviderLocal,
 	}
 
@@ -238,6 +248,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
+		mockPassSvc.On("ComparePassword", *user.Password, "password123").Return(nil).Once()
 		mockPassSvc.On("ComparePassword", *user.Password, "password123").Return(nil).Once()
 		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("access.token", accessClaims, nil).Once()
 		mockJwtSvc.On("GenerateRefreshToken", user.ID).Return("refresh.token", refreshClaims, nil).Once()
@@ -266,6 +277,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
 		mockUserRepo.On("GetByUsername", mock.Anything, user.Username).Return(user, nil).Once()
+		mockPassSvc.On("ComparePassword", *user.Password, "password123").Return(nil).Once()
 		mockPassSvc.On("ComparePassword", *user.Password, "password123").Return(nil).Once()
 		mockJwtSvc.On("GenerateAccessToken", user.ID, user.Role).Return("access.token", accessClaims, nil).Once()
 		mockJwtSvc.On("GenerateRefreshToken", user.ID).Return("refresh.token", refreshClaims, nil).Once()
@@ -340,6 +352,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
 		// Simulate password mismatch by returning an error from the password service
 		mockPassSvc.On("ComparePassword", *user.Password, "wrong-password").Return(errors.New("crypto/bcrypt: hashedPassword is not the hash of the given password")).Once()
+		mockPassSvc.On("ComparePassword", *user.Password, "wrong-password").Return(errors.New("crypto/bcrypt: hashedPassword is not the hash of the given password")).Once()
 
 		// Act
 		_, _, err := uc.Login(context.Background(), user.Email, "wrong-password")
@@ -358,6 +371,7 @@ func TestUserUsecase_Login(t *testing.T) {
 		mockJwtSvc := new(MockJWTService)
 		uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, mockJwtSvc, mockTokenRepo, nil, nil, 2*time.Second)
 		// Arrange
+		inactiveUser := &domain.User{ID: "user-inactive", Email: "inactive@test.com", IsActive: false, Provider: domain.ProviderLocal}
 		inactiveUser := &domain.User{ID: "user-inactive", Email: "inactive@test.com", IsActive: false, Provider: domain.ProviderLocal}
 		mockUserRepo.On("GetByEmail", mock.Anything, "inactive@test.com").Return(inactiveUser, nil).Once()
 
@@ -412,6 +426,7 @@ func TestUserUsecase_ForgetPassword(t *testing.T) {
 	user := &domain.User{ID: "user-123", Email: "user@example.com", Username: "testuser", Provider: domain.ProviderLocal}
 
 	t.Run("Success - Local User", func(t *testing.T) {
+	t.Run("Success - Local User", func(t *testing.T) {
 		mockUserRepo.On("GetByEmail", mock.Anything, user.Email).Return(user, nil).Once()
 		mockTokenRepo.On("DeleteByUserID", mock.Anything, user.ID, domain.TokenTypePasswordReset).Return(nil).Once()
 		mockTokenRepo.On("Store", mock.Anything, mock.AnythingOfType("*domain.Token")).Return(nil).Once()
@@ -420,6 +435,25 @@ func TestUserUsecase_ForgetPassword(t *testing.T) {
 		err := uc.ForgetPassword(context.Background(), user.Email)
 		assert.NoError(t, err)
 		mockUserRepo.AssertExpectations(t)
+	})
+
+	t.Run("Success - Google User (No Action)", func(t *testing.T) {
+		// Arrange
+		googleUser := &domain.User{
+			ID: "user-456", Email: "google@example.com", Username: "googleuser", Provider: domain.ProviderGoogle,
+		}
+		mockUserRepo.On("GetByEmail", mock.Anything, googleUser.Email).Return(googleUser, nil).Once()
+
+		// Act
+		err := uc.ForgetPassword(context.Background(), googleUser.Email)
+
+		// Assert
+		assert.NoError(t, err, "Should not return an error for a Google user to prevent email enumeration")
+		mockUserRepo.AssertExpectations(t)
+		// Crucially, no other methods (DeleteByUserID, Store, SendPasswordResetEmail) should be called.
+		mockTokenRepo.AssertNotCalled(t, "DeleteByUserID")
+		mockTokenRepo.AssertNotCalled(t, "Store")
+		mockEmailSvc.AssertNotCalled(t, "SendPasswordResetEmail")
 	})
 
 	t.Run("Success - Google User (No Action)", func(t *testing.T) {
@@ -449,11 +483,13 @@ func TestUserUsecase_ResetPassword(t *testing.T) {
 	uc := usecases.NewUserUsecase(mockUserRepo, mockPassSvc, nil, mockTokenRepo, nil, nil, 2*time.Second)
 	token := &domain.Token{ID: "token-id", UserID: "user-123", Type: domain.TokenTypePasswordReset, ExpiresAt: time.Now().Add(1 * time.Hour)}
 	user := &domain.User{ID: "user-123", Provider: domain.ProviderLocal}
+	user := &domain.User{ID: "user-123", Provider: domain.ProviderLocal}
 
 	t.Run("Success", func(t *testing.T) {
 		mockTokenRepo.On("GetByValue", mock.Anything, "valid.token").Return(token, nil).Once()
 		mockUserRepo.On("GetByID", mock.Anything, "user-123").Return(user, nil).Once()
 		mockPassSvc.On("HashPassword", "new-password123").Return("new_hashed_password", nil).Once()
+		mockUserRepo.On("Update", mock.Anything, mock.MatchedBy(func(u *domain.User) bool { return *u.Password == "new_hashed_password" })).Return(nil).Once()
 		mockUserRepo.On("Update", mock.Anything, mock.MatchedBy(func(u *domain.User) bool { return *u.Password == "new_hashed_password" })).Return(nil).Once()
 		mockTokenRepo.On("Delete", mock.Anything, "token-id").Return(nil).Once()
 		err := uc.ResetPassword(context.Background(), "valid.token", "new-password123")
