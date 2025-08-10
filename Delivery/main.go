@@ -26,6 +26,7 @@ func main() {
 	}
 
 	// --- Environment Config ---
+	appEnv := getEnv("APP_ENV", "development")
 	mongoURI := getEnv("MONGO_URI", "mongodb://localhost:27017")
 	dbName := getEnv("DB_NAME", "g6-blog-db")
 	serverPort := getEnv("PORT", "8080")
@@ -110,6 +111,30 @@ func main() {
 	blogRepo := repositories.NewBlogRepository(db.Collection("blogs"))
 	interactionRepo := repositories.NewInteractionRepository(db.Collection("interactions"))
 	commentRepo := repositories.NewCommentRepository(db.Collection("blog_comments"))
+
+	// --- Database Index Initialization ---
+	log.Println("Initializing database indexes...")
+	indexCtx, indexCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer indexCancel()
+
+	handleIndexError := func(repoName string, err error) {
+		if err != nil {
+			// In production, a failure to create an index is a fatal error.
+			if appEnv == "production" {
+				log.Fatalf("FATAL: failed to create %s indexes: %v", repoName, err)
+			}
+			// In development or other environments, just log a warning.
+			log.Printf("WARN: failed to create %s indexes (The application may be slow): %v", repoName, err)
+		}
+	}
+
+	handleIndexError("user", userRepo.CreateUserIndexes(indexCtx))
+	handleIndexError("token", tokenRepo.CreateTokenIndexes(indexCtx))
+	handleIndexError("blog", blogRepo.CreateBlogIndexes(indexCtx))
+	handleIndexError("interaction", interactionRepo.CreateInteractionIndexes(indexCtx))
+	handleIndexError("comment", commentRepo.CreateCommentIndexes(indexCtx))
+
+	log.Println("Database index initialization complete.")
 
 	// --- Usecases ---
 	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, imageUploadService, usecaseTimeout)

@@ -3,7 +3,6 @@ package repositories_test
 import (
 	domain "A2SV_Starter_Project_Blog/Domain"
 	repositories "A2SV_Starter_Project_Blog/Repositories"
-	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
 	"testing"
 	"time"
@@ -18,7 +17,7 @@ import (
 type TokenRepositorySuite struct {
 	suite.Suite
 	collection *mongo.Collection
-	repository usecases.TokenRepository
+	repository *repositories.MongoTokenRepository
 }
 
 // SetupSuite runs once before all tests in the suite
@@ -156,4 +155,101 @@ func (s *TokenRepositorySuite) TestDeleteByUserID() {
 	// Token for user-xyz should still exist
 	count, _ = s.collection.CountDocuments(ctx, bson.M{"user_id": "user-xyz"})
 	s.Equal(int64(1), count, "Token for user-xyz should not have been deleted")
+}
+
+// TestCreateIndexes verifies that all necessary indexes are created correctly.
+func (s *TokenRepositorySuite) TestCreateIndexes() {
+	ctx := context.Background()
+
+	// Act: Call the function to create the indexes.
+	err := s.repository.CreateTokenIndexes(ctx)
+	s.Require().NoError(err, "CreateIndexes should not return an error")
+
+	// Assert: List the indexes from the database and verify them.
+	cursor, err := s.collection.Indexes().List(ctx)
+	s.Require().NoError(err, "Failed to list collection indexes")
+
+	var indexes []bson.M
+	err = cursor.All(ctx, &indexes)
+	s.Require().NoError(err, "Failed to decode indexes from cursor")
+
+	// Create a map of index names to their full spec for easy lookups.
+	indexMap := make(map[string]bson.M)
+	for _, idx := range indexes {
+		s.T().Logf("Found index: %v", idx) // Helpful for debugging
+		indexMap[idx["name"].(string)] = idx
+	}
+
+	// There should be the default "_id_" index plus our 3 custom ones.
+	s.Len(indexMap, 4, "Expected 4 indexes in total")
+
+	// 1. Verify the unique index on 'value'
+	s.Run("Value Index", func() {
+		valueIndex, exists := indexMap["value_1"]
+		s.True(exists, "Index 'value_1' should exist")
+		keyDoc := valueIndex["key"].(bson.M)
+		s.Len(keyDoc, 1, "Value index key should have exactly one field")
+		s.Equal(int32(1), keyDoc["value"], "Value index should be on 'value' with ascending order")
+		s.True(valueIndex["unique"].(bool), "Value index should be unique")
+	})
+
+	// 2. Verify the compound index on 'user_id' and 'type'
+	s.Run("User-Type Compound Index", func() {
+		userTypeIndex, exists := indexMap["user_id_1_type_1"]
+		if !exists {
+			userTypeIndex, exists = indexMap["type_1_user_id_1"]
+		}
+		s.True(exists, "Index 'user_id_1_type_1' or 'type_1_user_id_1' should exist")
+		keyDoc := userTypeIndex["key"].(bson.M)
+		s.Len(keyDoc, 2, "User-Type index key should have exactly two fields")
+		s.Equal(int32(1), keyDoc["user_id"], "User-Type index should include 'user_id'")
+		s.Equal(int32(1), keyDoc["type"], "User-Type index should include 'type'")
+		_, isUnique := userTypeIndex["unique"]
+		s.False(isUnique, "User-Type index should not be unique")
+	})
+
+	// 3. Verify the TTL index on 'expires_at'
+	s.Run("ExpiresAt TTL Index", func() {
+		ttlIndex, exists := indexMap["expires_at_1"]
+		s.True(exists, "Index 'expires_at_1' should exist")
+		keyDoc := ttlIndex["key"].(bson.M)
+		s.Len(keyDoc, 1, "TTL index key should have exactly one field")
+		s.Equal(int32(1), keyDoc["expires_at"], "TTL index should be on 'expires_at'")
+		s.EqualValues(0, ttlIndex["expireAfterSeconds"], "TTL index should expire after 0 seconds")
+	})
+}
+
+func (s *TokenRepositorySuite) TestTTLIndex_DeletesExpiredDocument() {
+	ctx := context.Background()
+
+	// Arrange
+	// 1. Ensure the TTL index exists on the collection.
+	err := s.repository.CreateTokenIndexes(ctx)
+	s.Require().NoError(err, "Failed to create indexes for TTL test")
+
+	// 2. Create a token that has already expired.
+	expiredToken := &domain.Token{
+		ID:        primitive.NewObjectID().Hex(),
+		UserID:    "user-ttl-test",
+		Type:      domain.TokenTypeActivation,
+		Value:     "a-token-that-will-expire",
+		ExpiresAt: time.Now().Add(3 * time.Second).UTC(), // Expires two seconds later
+	}
+
+	// 3. Store it in the database.
+	err = s.repository.Store(ctx, expiredToken)
+	s.Require().NoError(err, "Failed to store the expired token")
+
+	// 4. Verify it was inserted correctly before the TTL monitor has a chance to run.
+	count, err := s.collection.CountDocuments(ctx, bson.M{"value": expiredToken.Value})
+	s.Require().NoError(err)
+	s.Equal(int64(1), count, "Token should exist immediately after insertion")
+
+	// This will check every 100ms for up to 5 seconds.
+	// Since our monitor runs every 1 second, this is more than enough time.
+	s.Eventually(func() bool {
+		count, err := s.collection.CountDocuments(ctx, bson.M{"value": expiredToken.Value})
+		s.Require().NoError(err)
+		return count == 0
+	}, time.Duration(ttlWait+5)*time.Second, 1000*time.Millisecond, "Expired token should have been deleted by the TTL index")
 }

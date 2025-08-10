@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // InteractionModel is the struct that represents how an interaction is stored in MongoDB.
@@ -22,14 +23,14 @@ type InteractionModel struct {
 	UpdatedAt time.Time          `bson:"updated_at"`
 }
 
-// interactionRepository implements the domain.IInteractionRepository interface.
-type interactionRepository struct {
+// InteractionRepository implements the domain.IInteractionRepository interface.
+type InteractionRepository struct {
 	collection *mongo.Collection
 }
 
 // NewInteractionRepository is the constructor for the interaction repository.
-func NewInteractionRepository(col *mongo.Collection) domain.IInteractionRepository {
-	return &interactionRepository{
+func NewInteractionRepository(col *mongo.Collection) *InteractionRepository {
+	return &InteractionRepository{
 		collection: col,
 	}
 }
@@ -65,9 +66,27 @@ func fromInteractionDomain(interaction *domain.BlogInteraction) (*InteractionMod
 	}, nil
 }
 
+func (r *InteractionRepository) CreateInteractionIndexes(ctx context.Context) error {
+	// A unique, compound index on user_id and blog_id.
+	// This serves two purposes:
+	// 1. Ensures a user can only have one interaction document per blog (e.g., can't "like" a blog twice).
+	// 2. Makes lookups by user and blog ID (in the Get method) extremely fast.
+	uniqueInteractionIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "user_id", Value: 1}, // 1 for ascending
+			{Key: "blog_id", Value: 1},
+		},
+		Options: options.Index().SetUnique(true),
+	}
+
+	// Create the index. This command is idempotent. Using CreateMany for consistency, but CreateOne is fine too.
+	_, err := r.collection.Indexes().CreateMany(ctx, []mongo.IndexModel{uniqueInteractionIndex})
+	return err
+}
+
 // --- Interface Implementations ---
 
-func (r *interactionRepository) Create(ctx context.Context, interaction *domain.BlogInteraction) error {
+func (r *InteractionRepository) Create(ctx context.Context, interaction *domain.BlogInteraction) error {
 	model, err := fromInteractionDomain(interaction)
 	if err != nil {
 		return err
@@ -89,7 +108,7 @@ func (r *interactionRepository) Create(ctx context.Context, interaction *domain.
 	return nil
 }
 
-func (r *interactionRepository) Get(ctx context.Context, userID, blogID string) (*domain.BlogInteraction, error) {
+func (r *InteractionRepository) Get(ctx context.Context, userID, blogID string) (*domain.BlogInteraction, error) {
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return nil, usecases.ErrNotFound // Invalid ID can't be found
@@ -111,7 +130,7 @@ func (r *interactionRepository) Get(ctx context.Context, userID, blogID string) 
 	return toInteractionDomain(&model), nil
 }
 
-func (r *interactionRepository) Update(ctx context.Context, interaction *domain.BlogInteraction) error {
+func (r *InteractionRepository) Update(ctx context.Context, interaction *domain.BlogInteraction) error {
 	objID, err := primitive.ObjectIDFromHex(interaction.ID)
 	if err != nil {
 		return usecases.ErrNotFound
@@ -134,7 +153,7 @@ func (r *interactionRepository) Update(ctx context.Context, interaction *domain.
 	return nil
 }
 
-func (r *interactionRepository) Delete(ctx context.Context, interactionID string) error {
+func (r *InteractionRepository) Delete(ctx context.Context, interactionID string) error {
 	objID, err := primitive.ObjectIDFromHex(interactionID)
 	if err != nil {
 		return usecases.ErrNotFound

@@ -26,12 +26,12 @@ type CommentModel struct {
 	UpdatedAt  time.Time           `bson:"updated_at"`
 }
 
-type commentRepository struct {
+type CommentRepository struct {
 	collection *mongo.Collection
 }
 
-func NewCommentRepository(col *mongo.Collection) domain.ICommentRepository {
-	return &commentRepository{
+func NewCommentRepository(col *mongo.Collection) *CommentRepository {
+	return &CommentRepository{
 		collection: col,
 	}
 }
@@ -87,7 +87,35 @@ func fromCommentDomain(comment *domain.Comment) (*CommentModel, error) {
 	return model, nil
 }
 
-func (r *commentRepository) Create(ctx context.Context, comment *domain.Comment) error {
+func (r *CommentRepository) CreateCommentIndexes(ctx context.Context) error {
+	// Index for fetching top-level comments for a blog, sorted by creation time.
+	// This makes the FetchByBlogID query highly efficient.
+	blogCommentsIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "blog_id", Value: 1},    // First, filter by blog_id
+			{Key: "parent_id", Value: 1},  // Then, filter by parent_id (for nulls)
+			{Key: "created_at", Value: 1}, // Finally, sort by created_at
+		},
+	}
+
+	// Index for fetching replies for a parent comment, sorted by creation time.
+	// This makes the FetchReplies query highly efficient.
+	repliesIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "parent_id", Value: 1},  // First, filter by parent_id
+			{Key: "created_at", Value: 1}, // Then, sort by created_at
+		},
+	}
+
+	// Create the indexes. This command is idempotent.
+	_, err := r.collection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		blogCommentsIndex,
+		repliesIndex,
+	})
+	return err
+}
+
+func (r *CommentRepository) Create(ctx context.Context, comment *domain.Comment) error {
 	model, err := fromCommentDomain(comment)
 	if err != nil {
 		return err
@@ -105,7 +133,7 @@ func (r *commentRepository) Create(ctx context.Context, comment *domain.Comment)
 	return nil
 }
 
-func (r *commentRepository) GetByID(ctx context.Context, commentID string) (*domain.Comment, error) {
+func (r *CommentRepository) GetByID(ctx context.Context, commentID string) (*domain.Comment, error) {
 	objID, err := primitive.ObjectIDFromHex(commentID)
 	if err != nil {
 		return nil, usecases.ErrInternal
@@ -122,7 +150,7 @@ func (r *commentRepository) GetByID(ctx context.Context, commentID string) (*dom
 	return toCommentDomain(&model), nil
 }
 
-func (r *commentRepository) Update(ctx context.Context, comment *domain.Comment) error {
+func (r *CommentRepository) Update(ctx context.Context, comment *domain.Comment) error {
 	objID, err := primitive.ObjectIDFromHex(comment.ID)
 	if err != nil {
 		return usecases.ErrInternal
@@ -144,7 +172,7 @@ func (r *commentRepository) Update(ctx context.Context, comment *domain.Comment)
 	return nil
 }
 
-func (r *commentRepository) Anonymize(ctx context.Context, commentID string) error {
+func (r *CommentRepository) Anonymize(ctx context.Context, commentID string) error {
 	objID, err := primitive.ObjectIDFromHex(commentID)
 	if err != nil {
 		return usecases.ErrInternal
@@ -169,7 +197,7 @@ func (r *commentRepository) Anonymize(ctx context.Context, commentID string) err
 	return nil
 }
 
-func (r *commentRepository) FetchByBlogID(ctx context.Context, blogID string, page, limit int64) ([]*domain.Comment, int64, error) {
+func (r *CommentRepository) FetchByBlogID(ctx context.Context, blogID string, page, limit int64) ([]*domain.Comment, int64, error) {
 	blogObjID, err := primitive.ObjectIDFromHex(blogID)
 	if err != nil {
 		return nil, 0, usecases.ErrInternal
@@ -178,7 +206,7 @@ func (r *commentRepository) FetchByBlogID(ctx context.Context, blogID string, pa
 	return r.fetchPaginated(ctx, filter, page, limit)
 }
 
-func (r *commentRepository) FetchReplies(ctx context.Context, parentID string, page, limit int64) ([]*domain.Comment, int64, error) {
+func (r *CommentRepository) FetchReplies(ctx context.Context, parentID string, page, limit int64) ([]*domain.Comment, int64, error) {
 	parentObjID, err := primitive.ObjectIDFromHex(parentID)
 	if err != nil {
 		return nil, 0, usecases.ErrInternal
@@ -188,7 +216,7 @@ func (r *commentRepository) FetchReplies(ctx context.Context, parentID string, p
 }
 
 // fetchPaginated is a helper to reduce code duplication between FetchByBlogID and FetchReplies.
-func (r *commentRepository) fetchPaginated(ctx context.Context, filter bson.M, page, limit int64) ([]*domain.Comment, int64, error) {
+func (r *CommentRepository) fetchPaginated(ctx context.Context, filter bson.M, page, limit int64) ([]*domain.Comment, int64, error) {
 	total, err := r.collection.CountDocuments(ctx, filter)
 	if err != nil {
 		return nil, 0, err
@@ -216,7 +244,7 @@ func (r *commentRepository) fetchPaginated(ctx context.Context, filter bson.M, p
 	return comments, total, cursor.Err()
 }
 
-func (r *commentRepository) IncrementReplyCount(ctx context.Context, parentID string, value int) error {
+func (r *CommentRepository) IncrementReplyCount(ctx context.Context, parentID string, value int) error {
 	parentObjID, err := primitive.ObjectIDFromHex(parentID)
 	if err != nil {
 		return usecases.ErrInternal
