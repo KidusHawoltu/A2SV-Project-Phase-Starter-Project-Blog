@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -34,6 +35,10 @@ func (s *TokenRepositorySuite) SetupTest() {
 
 // TestTokenRepositorySuite is the entry point for running the test suite
 func TestTokenRepositorySuite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode.")
+	}
+	t.Parallel()
 	suite.Run(t, new(TokenRepositorySuite))
 }
 
@@ -219,37 +224,45 @@ func (s *TokenRepositorySuite) TestCreateIndexes() {
 	})
 }
 
-func (s *TokenRepositorySuite) TestTTLIndex_DeletesExpiredDocument() {
+// A parallel test out of suite because it may wait 65 seconds
+func TestTokenTTL_Parallel(t *testing.T) {
+	t.Parallel()
+
+	// 2. Perform its own setup, because it's not part of the suite's lifecycle.
+	// Use a unique collection name to guarantee isolation.
+	collectionName := "tokens_ttl_parallel_test"
+	collection := testDB.Collection(collectionName)
+	repo := repositories.NewMongoTokenRepository(testDB, collectionName)
+
+	// Ensure the collection is clean after the test.
+	defer func() {
+		collection.Drop(context.Background())
+	}()
+
 	ctx := context.Background()
 
-	// Arrange
-	// 1. Ensure the TTL index exists on the collection.
-	err := s.repository.CreateTokenIndexes(ctx)
-	s.Require().NoError(err, "Failed to create indexes for TTL test")
+	// 3. The rest of the test logic is the same.
+	err := repo.CreateTokenIndexes(ctx)
+	require.NoError(t, err, "Failed to create indexes for TTL test")
 
-	// 2. Create a token that has already expired.
 	expiredToken := &domain.Token{
 		ID:        primitive.NewObjectID().Hex(),
-		UserID:    "user-ttl-test",
+		UserID:    "user-ttl-parallel",
 		Type:      domain.TokenTypeActivation,
-		Value:     "a-token-that-will-expire",
-		ExpiresAt: time.Now().Add(3 * time.Second).UTC(), // Expires two seconds later
+		Value:     "a-parallel-token-that-will-expire",
+		ExpiresAt: time.Now().Add(3 * time.Second).UTC(),
 	}
 
-	// 3. Store it in the database.
-	err = s.repository.Store(ctx, expiredToken)
-	s.Require().NoError(err, "Failed to store the expired token")
+	err = repo.Store(ctx, expiredToken)
+	require.NoError(t, err, "Failed to store the expired token")
 
-	// 4. Verify it was inserted correctly before the TTL monitor has a chance to run.
-	count, err := s.collection.CountDocuments(ctx, bson.M{"value": expiredToken.Value})
-	s.Require().NoError(err)
-	s.Equal(int64(1), count, "Token should exist immediately after insertion")
+	count, err := collection.CountDocuments(ctx, bson.M{"value": expiredToken.Value})
+	require.NoError(t, err)
+	require.Equal(t, int64(1), count, "Token should exist immediately")
 
-	// This will check every 100ms for up to 5 seconds.
-	// Since our monitor runs every 1 second, this is more than enough time.
-	s.Eventually(func() bool {
-		count, err := s.collection.CountDocuments(ctx, bson.M{"value": expiredToken.Value})
-		s.Require().NoError(err)
+	require.Eventually(t, func() bool {
+		count, err := collection.CountDocuments(ctx, bson.M{"value": expiredToken.Value})
+		require.NoError(t, err)
 		return count == 0
-	}, time.Duration(ttlWait+5)*time.Second, 1000*time.Millisecond, "Expired token should have been deleted by the TTL index")
+	}, time.Duration(ttlWait+5)*time.Second, 1000*time.Millisecond, "Expired token should have been deleted")
 }
