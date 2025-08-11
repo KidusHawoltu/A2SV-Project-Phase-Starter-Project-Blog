@@ -31,6 +31,11 @@ func main() {
 	dbName := getEnv("DB_NAME", "g6-blog-db")
 	serverPort := getEnv("PORT", "8080")
 
+	// -- Redis
+	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
+	redisPassword := getEnv("REDIS_PASSWORD", "") // Default to no password
+	redisDB, _ := strconv.Atoi(getEnv("REDIS_DB", "0"))
+
 	// JWT settings
 	jwtSecret := getEnv("JWT_SECRET", "a-very-secret-key-that-should-be-long-and-random")
 	jwtIssuer := "g6-blog-api"
@@ -49,6 +54,7 @@ func main() {
 		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
 	}
 
+	// Cloudinary
 	cloudinaryCloudName := os.Getenv("CLOUDINARY_CLOUD_NAME")
 	cloudinaryApiKey := os.Getenv("CLOUDINARY_API_KEY")
 	cloudinaryApiSecret := os.Getenv("CLOUDINARY_API_SECRET")
@@ -104,6 +110,12 @@ func main() {
 	if err != nil {
 		log.Printf("WARN: Cloudinary service failed to initialize. Image uploads will be unavailable. Error: %v", err)
 	}
+	redisService, err := infrastructure.NewRedisService(context.Background(), redisAddr, redisPassword, redisDB)
+	if err != nil {
+		log.Fatalf("FATAL: Redis connection failed.Error: %v", err)
+	}
+	defer redisService.Close()
+	rateLimiter := infrastructure.NewRateLimiter(redisService)
 
 	// --- Repositories ---
 	userRepo := repositories.NewMongoUserRepository(db, "users")
@@ -151,7 +163,7 @@ func main() {
 	oauthController := controllers.NewOAuthController(oauthUsecase)
 
 	// --- Setup Router ---
-	router := routers.SetupRouter(userController, blogController, aiController, commentController, oauthController, jwtService)
+	router := routers.SetupRouter(userController, blogController, aiController, commentController, oauthController, jwtService, rateLimiter)
 
 	log.Printf("Server starting on port %s...", serverPort)
 	if err := router.Run(":" + serverPort); err != nil {
