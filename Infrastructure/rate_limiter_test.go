@@ -35,7 +35,6 @@ func (s *RateLimiterTestSuite) SetupTest() {
 
 // TestRateLimiterSuite is the entry point for the suite.
 func TestRateLimiterSuite(t *testing.T) {
-	t.Parallel()
 	suite.Run(t, new(RateLimiterTestSuite))
 }
 

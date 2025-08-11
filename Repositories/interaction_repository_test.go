@@ -129,6 +129,55 @@ func (s *InteractionRepositoryTestSuite) TestGet_NotFound() {
 	s.Nil(foundInteraction, "The returned interaction should be nil")
 }
 
+func (s *InteractionRepositoryTestSuite) TestGetByID() {
+	ctx := context.Background()
+
+	// Arrange: Create an interaction so we have a valid ID to fetch.
+	interactionToCreate := &domain.BlogInteraction{
+		UserID: s.fixedUserID.Hex(),
+		BlogID: s.fixedBlogID.Hex(),
+		Action: domain.ActionTypeLike,
+	}
+	err := s.repo.Create(ctx, interactionToCreate)
+	s.Require().NoError(err, "Setup: failed to create an interaction")
+	s.Require().NotEmpty(interactionToCreate.ID, "Setup: interaction ID should be populated after creation")
+
+	s.Run("Success - Interaction Found", func() {
+		// Act: Fetch the interaction using the ID generated during creation.
+		foundInteraction, err := s.repo.GetByID(ctx, interactionToCreate.ID)
+
+		// Assert
+		s.Require().NoError(err)
+		s.Require().NotNil(foundInteraction)
+		s.Equal(interactionToCreate.ID, foundInteraction.ID)
+		s.Equal(interactionToCreate.UserID, foundInteraction.UserID)
+		s.Equal(interactionToCreate.BlogID, foundInteraction.BlogID)
+		s.Equal(interactionToCreate.Action, foundInteraction.Action)
+	})
+
+	s.Run("Failure - Not Found (Valid ID)", func() {
+		// Act: Try to fetch an interaction with a valid but non-existent ID.
+		nonExistentID := primitive.NewObjectID().Hex()
+		foundInteraction, err := s.repo.GetByID(ctx, nonExistentID)
+
+		// Assert
+		s.Require().Error(err)
+		s.ErrorIs(err, usecases.ErrNotFound, "Error should be ErrNotFound for a non-existent ID")
+		s.Nil(foundInteraction)
+	})
+
+	s.Run("Failure - Invalid ID Format", func() {
+		// Act: Try to fetch an interaction with a malformed ID string.
+		invalidID := "not-a-valid-hex-id"
+		foundInteraction, err := s.repo.GetByID(ctx, invalidID)
+
+		// Assert
+		s.Require().Error(err)
+		s.ErrorIs(err, usecases.ErrNotFound, "Error should be ErrNotFound for a malformed ID string")
+		s.Nil(foundInteraction)
+	})
+}
+
 func (s *InteractionRepositoryTestSuite) TestCreate_Duplicate() {
 	ctx := context.Background()
 	// Arrange: Explicitly create the index needed for this test.

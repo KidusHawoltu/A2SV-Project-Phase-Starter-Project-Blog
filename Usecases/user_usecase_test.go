@@ -84,6 +84,13 @@ func (m *MockTokenRepository) GetByValue(ctx context.Context, tokenValue string)
 	}
 	return args.Get(0).(*domain.Token), args.Error(1)
 }
+func (m *MockTokenRepository) GetByID(ctx context.Context, tokenID string) (*domain.Token, error) {
+	args := m.Called(ctx, tokenID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.Token), args.Error(1)
+}
 func (m *MockTokenRepository) Delete(ctx context.Context, tokenID string) error {
 	args := m.Called(ctx, tokenID)
 	return args.Error(0)

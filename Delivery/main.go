@@ -116,6 +116,7 @@ func main() {
 	}
 	defer redisService.Close()
 	rateLimiter := infrastructure.NewRateLimiter(redisService)
+	cache := infrastructure.NewRedisCacheService(redisService)
 
 	// --- Repositories ---
 	userRepo := repositories.NewMongoUserRepository(db, "users")
@@ -145,15 +146,20 @@ func main() {
 	handleIndexError("blog", blogRepo.CreateBlogIndexes(indexCtx))
 	handleIndexError("interaction", interactionRepo.CreateInteractionIndexes(indexCtx))
 	handleIndexError("comment", commentRepo.CreateCommentIndexes(indexCtx))
-
 	log.Println("Database index initialization complete.")
 
+	userCacheRepo := repositories.NewCachingUserRepository(userRepo, cache)
+	tokenCacheRepo := repositories.NewCachingTokenRepository(tokenRepo, cache)
+	blogCacheRepo := repositories.NewCachingBlogRepository(blogRepo, cache)
+	interactionCacheRepo := repositories.NewCachingInteractionRepository(interactionRepo, cache)
+	commentCacheRepo := repositories.NewCachingCommentRepository(commentRepo, cache)
+
 	// --- Usecases ---
-	userUsecase := usecases.NewUserUsecase(userRepo, passwordService, jwtService, tokenRepo, emailService, imageUploadService, usecaseTimeout)
-	blogUsecase := usecases.NewBlogUsecase(blogRepo, userRepo, interactionRepo, usecaseTimeout)
+	userUsecase := usecases.NewUserUsecase(userCacheRepo, passwordService, jwtService, tokenCacheRepo, emailService, imageUploadService, usecaseTimeout)
+	blogUsecase := usecases.NewBlogUsecase(blogCacheRepo, userCacheRepo, interactionCacheRepo, usecaseTimeout)
 	aiUsecase := usecases.NewAIUsecase(aiService, 5*usecaseTimeout)
-	commentUsecase := usecases.NewCommentUsecase(blogRepo, commentRepo, usecaseTimeout)
-	oauthUsecase := usecases.NewOAuthUsecase(userRepo, tokenRepo, jwtService, googleOAuth2Service, usecaseTimeout)
+	commentUsecase := usecases.NewCommentUsecase(blogCacheRepo, commentCacheRepo, usecaseTimeout)
+	oauthUsecase := usecases.NewOAuthUsecase(userCacheRepo, tokenCacheRepo, jwtService, googleOAuth2Service, usecaseTimeout)
 
 	// --- Controllers ---
 	userController := controllers.NewUserController(userUsecase)

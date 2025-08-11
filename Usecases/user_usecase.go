@@ -26,6 +26,7 @@ type UserRepository interface {
 type TokenRepository interface {
 	Store(ctx context.Context, token *domain.Token) error
 	GetByValue(ctx context.Context, tokenValue string) (*domain.Token, error)
+	GetByID(ctx context.Context, tokenID string) (*domain.Token, error)
 	Delete(ctx context.Context, tokenID string) error
 	DeleteByUserID(ctx context.Context, userID string, tokenType domain.TokenType) error
 }

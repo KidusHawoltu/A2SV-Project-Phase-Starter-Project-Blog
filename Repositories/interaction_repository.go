@@ -130,6 +130,24 @@ func (r *InteractionRepository) Get(ctx context.Context, userID, blogID string) 
 	return toInteractionDomain(&model), nil
 }
 
+func (r *InteractionRepository) GetByID(ctx context.Context, id string) (*domain.BlogInteraction, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, usecases.ErrNotFound
+	}
+
+	var model InteractionModel
+	err = r.collection.FindOne(ctx, bson.M{"_id": objID}).Decode(&model)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, usecases.ErrNotFound
+		}
+		return nil, err
+	}
+
+	return toInteractionDomain(&model), nil
+}
+
 func (r *InteractionRepository) Update(ctx context.Context, interaction *domain.BlogInteraction) error {
 	objID, err := primitive.ObjectIDFromHex(interaction.ID)
 	if err != nil {

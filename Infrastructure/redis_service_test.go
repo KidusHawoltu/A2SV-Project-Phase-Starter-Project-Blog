@@ -21,7 +21,6 @@ func (s *RedisServiceTestSuite) SetupSuite() {
 
 // TestRedisServiceSuite is the entry point.
 func TestRedisServiceSuite(t *testing.T) {
-	t.Parallel()
 	suite.Run(t, new(RedisServiceTestSuite))
 }
 

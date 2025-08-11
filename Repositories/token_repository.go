@@ -40,6 +40,7 @@ func fromTokenDomain(t *domain.Token) (*tokenMongo, error) {
 			return nil, domain.ErrInvalidID
 		}
 	}
+	t.ID = objectID.Hex()
 
 	return &tokenMongo{
 		ID:        objectID,
@@ -114,6 +115,24 @@ func (r *MongoTokenRepository) GetByValue(ctx context.Context, tokenValue string
 
 	domainToken := toTokenDomain(&mongoToken)
 	return domainToken, nil
+}
+
+func (r *MongoTokenRepository) GetByID(ctx context.Context, tokenID string) (*domain.Token, error) {
+	id, err := primitive.ObjectIDFromHex(tokenID)
+	if err != nil {
+		return nil, domain.ErrInvalidID
+	}
+
+	var mongoToken tokenMongo
+	err = r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&mongoToken)
+	if err != nil {
+		if errors.Is(err, mongo.ErrNoDocuments) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+
+	return toTokenDomain(&mongoToken), nil
 }
 
 func (r *MongoTokenRepository) Delete(ctx context.Context, tokenID string) error {
