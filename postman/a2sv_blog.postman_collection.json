@@ -1,330 +1,872 @@
 {
-  "info": {
-    "name": "A2SV Blog Platform API",
-    "_postman_id": "12345678-abcd-efgh-ijkl-1234567890ab",
-    "description": "Postman tests for all A2SV Blog Platform routes",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
-  },
-  "item": [
-    {
-      "name": "Auth",
-      "item": [
-        {
-          "name": "Register",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/v1/auth/register",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"username\": \"testuser\",\n  \"email\": \"test@example.com\",\n  \"password\": \"Test@1234\"\n}"
-            }
-          }
-        },
-        {
-          "name": "Activate Account",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/api/v1/auth/activate?token=ACTIVATION_TOKEN"
-          }
-        },
-        {
-          "name": "Login",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/v1/auth/login",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"Test@1234\"\n}"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "let jsonData = pm.response.json();",
-                  "if (jsonData.accessToken) {",
-                  "    pm.environment.set(\"accessToken\", jsonData.accessToken);",
-                  "    console.log(\"Access Token saved to environment\");",
-                  "}",
-                  "if (jsonData.refreshToken) {",
-                  "    pm.environment.set(\"refreshToken\", jsonData.refreshToken);",
-                  "    console.log(\"Refresh Token saved to environment\");",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-
-        {
-          "name": "Refresh Token",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/v1/auth/refresh",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
-            }
-          }
-        },
-        {
-          "name": "Logout",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/auth/logout"
-          }
-        }
-      ]
-    },
-    {
-      "name": "Password",
-      "item": [
-        {
-          "name": "Forget Password",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/v1/password/forget",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"test@example.com\"\n}"
-            }
-          }
-        },
-        {
-          "name": "Reset Password",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "url": "{{baseUrl}}/api/v1/password/reset",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"token\": \"RESET_TOKEN\",\n  \"newPassword\": \"NewPass@123\"\n}"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "Profile",
-      "item": [
-        {
-          "name": "Get Profile",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/profile"
-          }
-        },
-        {
-          "name": "Update Profile",
-          "request": {
-            "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/profile",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"username\": \"updatedUser\",\n  \"bio\": \"Updated bio\"\n}"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "Admin",
-      "item": [
-        {
-          "name": "Search Users",
-          "request": {
-            "method": "GET",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/admin/users?search=test"
-          }
-        },
-        {
-          "name": "Set User Role",
-          "request": {
-            "method": "PATCH",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/admin/users/12345/role",
-            "body": { "mode": "raw", "raw": "{\n  \"role\": \"admin\"\n}" }
-          }
-        }
-      ]
-    },
-    {
-      "name": "Blogs",
-      "item": [
-        {
-          "name": "Get Blogs",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/api/v1/blogs?search=test"
-          }
-        },
-        {
-          "name": "Get Blog By ID",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/api/v1/blogs/12345"
-          }
-        },
-        {
-          "name": "Create Blog",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/blogs",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"My First Blog\",\n  \"content\": \"Blog content here\"\n}"
-            }
-          }
-        },
-        {
-          "name": "Update Blog",
-          "request": {
-            "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/blogs/12345",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"title\": \"Updated Title\",\n  \"content\": \"Updated Content\"\n}"
-            }
-          }
-        },
-        {
-          "name": "Delete Blog",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/blogs/12345"
-          }
-        },
-        {
-          "name": "Interact With Blog",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/blogs/12345/interact",
-            "body": { "mode": "raw", "raw": "{\n  \"action\": \"like\"\n}" }
-          }
-        },
-        {
-          "name": "Get Blog Comments",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/api/v1/blogs/12345/comments"
-          }
-        },
-        {
-          "name": "Add Blog Comment",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/blogs/12345/comments",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"content\": \"Nice blog!\"\n}"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "AI",
-      "item": [
-        {
-          "name": "Suggest",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/ai/suggest",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"text\": \"Write a blog about AI in education\"\n}"
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "Comments",
-      "item": [
-        {
-          "name": "Get Comment Replies",
-          "request": {
-            "method": "GET",
-            "url": "{{baseUrl}}/api/v1/comments/12345/replies"
-          }
-        },
-        {
-          "name": "Update Comment",
-          "request": {
-            "method": "PUT",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/comments/12345",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"content\": \"Updated comment\"\n}"
-            }
-          }
-        },
-        {
-          "name": "Delete Comment",
-          "request": {
-            "method": "DELETE",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{accessToken}}" }
-            ],
-            "url": "{{baseUrl}}/api/v1/comments/12345"
-          }
-        }
-      ]
-    }
-  ],
-  "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8080" },
-    { "key": "accessToken", "value": "" },
-    { "key": "refreshToken", "value": "" }
-  ]
+	"info": {
+		"_postman_id": "c296058d-3673-4192-8c36-361110adbf6e",
+		"name": "A2SV Blog Platform API",
+		"description": "Postman tests for all A2SV Blog Platform routes",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "46799211"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Register",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"testuser3\",\n  \"email\": \"dawitbirhanu363@gmail.com\",\n  \"password\": \"Test@1234\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"register"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Activate Account",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/activate?token=6899984eb80be41e12ef0b88",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"activate"
+							],
+							"query": [
+								{
+									"key": "token",
+									"value": "6899984eb80be41e12ef0b88"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"let jsonData = pm.response.json();",
+									"",
+									"// Check if the access_token exists and set it to collection variable",
+									"if (jsonData.access_token) {",
+									"    pm.collectionVariables.set(\"accessToken\", jsonData.access_token);",
+									"    console.log(\"Access Token saved to collection variables\", jsonData.access_token);",
+									"} else {",
+									"    console.log(\"Access Token not found in the response\");",
+									"}",
+									"",
+									"// Check if the refresh_token exists and set it to collection variable",
+									"if (jsonData.refresh_token) {",
+									"    pm.collectionVariables.set(\"refreshToken\", jsonData.refresh_token);",
+									"    console.log(\"Refresh Token saved to collection variables\", jsonData.refresh_token);",
+									"} else {",
+									"    console.log(\"Refresh Token not found in the response\");",
+									"}",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"testuser3\",\n  \"password\": \"NewPass@123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"let jsonData = pm.response.json();",
+									"",
+									"// Check if the access_token exists and set it to collection variable",
+									"if (jsonData.access_token) {",
+									"    pm.collectionVariables.set(\"accessToken\", jsonData.access_token);",
+									"    console.log(\"Access Token saved to collection variables\", jsonData.access_token);",
+									"} else {",
+									"    console.log(\"Access Token not found in the response\");",
+									"}",
+									"",
+									"// Check if the refresh_token exists and set it to collection variable",
+									"if (jsonData.refresh_token) {",
+									"    pm.collectionVariables.set(\"refreshToken\", jsonData.refresh_token);",
+									"    console.log(\"Refresh Token saved to collection variables\", jsonData.refresh_token);",
+									"} else {",
+									"    console.log(\"Refresh Token not found in the response\");",
+									"}",
+									""
+								],
+								"type": "text/javascript",
+								"packages": {}
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{refreshToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"access_token\": \"{{accessToken}}\",\n    \"refresh_token\": \"{{refreshToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/refresh",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"refresh"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refresh_token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNjg5OWEyMzMzZTg5MGNhNjU4MmFjZDhkIiwicm9sZSI6IiIsImlzcyI6Imc2LWJsb2ctYXBpIiwiZXhwIjoxNzU1MTU4NjAzLCJpYXQiOjE3NTQ4OTk0MDMsImp0aSI6IjY4OTlhM2NiM2U4OTBjYTY1ODJhY2Q5MyJ9.azWVl9kGkjBDSBKp2Cdk6nQE8CiH1lCyvm9TjYJ52I0\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/logout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"logout"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Password",
+			"item": [
+				{
+					"name": "Forget Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"dawitbirhanu363@gmail.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/password/forget",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"password",
+								"forget"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reset Password",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"token\": \"6899b9430a6ec36194240bd6\",\n  \"new_password\": \"NewPass@123\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/password/reset",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"password",
+								"reset"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Profile",
+			"item": [
+				{
+					"name": "Get Profile",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/profile",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"profile"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "bio",
+									"value": "new bio",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/profile",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"profile"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Admin",
+			"item": [
+				{
+					"name": "Search Users",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/admin/users?search=test",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"users"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": "test"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Set User Role",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"newRole\": \"user\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/admin/users/6899a2333e890ca6582acd8e/role",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"admin",
+								"users",
+								"6899a2333e890ca6582acd8e",
+								"role"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Blogs",
+			"item": [
+				{
+					"name": "Get Blogs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/blogs?sortBy=popularity",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"blogs"
+							],
+							"query": [
+								{
+									"key": "sortBy",
+									"value": "popularity"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Blog By ID",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/blogs/6899a7420187907240dba409",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"blogs",
+								"6899a7420187907240dba409"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Blog",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Kirubel's Success Story\",\n  \"content\": \"I watched Kirubel fail his presentation, and it taught me a profound lesson about success. True success isn't the absence of mistakes, but the resolve shown in their wake. He didn't let that initial stumble define him. Instead, he persevered, learned from the experience, and ultimately delivered. His journey was a powerful reminder that failure is not a permanent state but a stepping stone. I realized that, like him, I don't have to be defined by my setbacks.\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/blogs",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"blogs"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Blog",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Updated Title\",\n  \"content\": \"Updated Content\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/blogs/12345",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"blogs",
+								"12345"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Blog",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/blogs/6899a7420187907240dba409",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"blogs",
+								"6899a7420187907240dba409"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Interact With Blog",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"action\": \"like\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/blogs/6899b0d24c8840ba6e5707d9/interact",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"blogs",
+								"6899b0d24c8840ba6e5707d9",
+								"interact"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Comment Replies",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/comments/6899b12c4c8840ba6e5707db/replies",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"comments",
+								"6899b12c4c8840ba6e5707db",
+								"replies"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Blog Comments",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/blogs/6899b0d24c8840ba6e5707d9/comments",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"blogs",
+								"6899b0d24c8840ba6e5707d9",
+								"comments"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Blog Comment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"content\": \"I agree.\",\n  \"parentId\": \"6899b12c4c8840ba6e5707db\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/blogs/6899b0d24c8840ba6e5707d9/comments",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"blogs",
+								"6899b0d24c8840ba6e5707d9",
+								"comments"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "AI",
+			"item": [
+				{
+					"name": "Suggest",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"action\": \"refine_content\",\n  \"content\": \"I dids Watched Kirubel Failed His Presentations, and It teaching Me Everything About Success. Success is everything that Kirubel do. He do not fails and stoped there. He get up and lastly succeededdd wohooooo. I change the same way. I not reman a falure foreverd\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/ai/suggest",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"ai",
+								"suggest"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Comments",
+			"item": [
+				{
+					"name": "Get Comment Replies",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/comments/12345/replies",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"comments",
+								"12345",
+								"replies"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Comment",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"content\": \"Updated comment\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/comments/12345",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"comments",
+								"12345"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Comment",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/comments/12345",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"comments",
+								"12345"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{accessToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"packages": {},
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080"
+		},
+		{
+			"key": "accessToken",
+			"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNjg5OThjNjMzNDM3ZGIxNWE4MWJjYjdiIiwicm9sZSI6ImFkbWluIiwiaXNzIjoiZzYtYmxvZy1hcGkiLCJleHAiOjE3NTQ4OTYzMzksImlhdCI6MTc1NDg5NTQzOSwianRpIjoiNjg5OTk0NGY5MjAyZjI4NGQwMGFjMTI2In0.HfN7Dpbu33z3w9BFQDWdRu7zrfcAvDQwMZoJw2w1too"
+		},
+		{
+			"key": "refreshToken",
+			"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiNjg5OThjNjMzNDM3ZGIxNWE4MWJjYjdiIiwicm9sZSI6IiIsImlzcyI6Imc2LWJsb2ctYXBpIiwiZXhwIjoxNzU1MTU0NjM5LCJpYXQiOjE3NTQ4OTU0MzksImp0aSI6IjY4OTk5NDRmOTIwMmYyODRkMDBhYzEyNyJ9.x-Jc_aq6LYFEjEPWu__qzm3oYILIdde067CuMqM5PEM"
+		}
+	]
 }
