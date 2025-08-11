@@ -50,7 +50,7 @@ func (s *SmtpEmailService) SendPasswordResetEmail(toEmail, username, resetToken 
 	%s
 
 	Or click the link below:
-	http://yourfrontend.com/reset-password?token=%s
+	http://localhost:8080/api/v1/password/reset?token=%s
 
 	If you did not request this, please ignore this email.
 	`, username, resetToken, resetToken)
@@ -69,8 +69,7 @@ func (s *SmtpEmailService) SendActivationEmail(toEmail, username, activationToke
 	%s
 
 	Or click this link:
-	http://yourfrontend.com/activate-account?token=%s
-
+	http://localhost:8080/api/v1/auth/activate?token=%s
 	If you did not create an account, ignore this email.
 	`, username, activationToken, activationToken)
 

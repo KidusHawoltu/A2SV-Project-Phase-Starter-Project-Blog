@@ -82,8 +82,18 @@ func (r *MongoTokenRepository) CreateTokenIndexes(ctx context.Context) error {
 	// MongoDB will automatically delete documents when their 'expires_at' time is reached.
 	// SetExpireAfterSeconds(0) means it will use the timestamp from the 'expires_at' field.
 	ttlIndex := mongo.IndexModel{
-		Keys:    bson.D{{Key: "expires_at", Value: 1}},
-		Options: options.Index().SetExpireAfterSeconds(0),
+		Keys: bson.D{{Key: "expires_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(0).
+			SetPartialFilterExpression(bson.M{
+				// Only include documents in this index where the 'type' field
+				// is NOT equal to "access_token".
+				"type": bson.M{"$in": []string{
+					string(domain.TokenTypeRefresh),
+					string(domain.TokenTypeActivation),
+					string(domain.TokenTypePasswordReset),
+				},
+				},
+			}),
 	}
 
 	// Create the indexes

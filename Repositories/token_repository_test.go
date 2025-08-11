@@ -276,6 +276,18 @@ func (s *TokenRepositorySuite) TestCreateIndexes() {
 		s.Len(keyDoc, 1, "TTL index key should have exactly one field")
 		s.Equal(int32(1), keyDoc["expires_at"], "TTL index should be on 'expires_at'")
 		s.EqualValues(0, ttlIndex["expireAfterSeconds"], "TTL index should expire after 0 seconds")
+		pfe, ok := ttlIndex["partialFilterExpression"].(bson.M)
+		s.True(ok, "TTL index should have a partialFilterExpression")
+		expectedFilter := bson.M{
+			"type": bson.M{
+				"$in": primitive.A{
+					string(domain.TokenTypeRefresh),
+					string(domain.TokenTypeActivation),
+					string(domain.TokenTypePasswordReset),
+				},
+			},
+		}
+		s.Equal(expectedFilter, pfe, "Partial filter expression is incorrect")
 	})
 }
 

@@ -3,6 +3,7 @@ package controllers
 import (
 	domain "A2SV_Starter_Project_Blog/Domain"
 	usecases "A2SV_Starter_Project_Blog/Usecases"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -27,7 +28,7 @@ type RegisterRequest struct {
 }
 
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required"`
+	Email    string `json:"email,omitempty"`
 	Username string `json:"username,omitempty"`
 	Password string `json:"password" binding:"required"`
 }
@@ -102,8 +103,9 @@ func (ctrl *UserController) Register(c *gin.Context) {
 		Password: &password,
 		Role:     domain.RoleUser,
 	}
-
+	fmt.Println(user.Email)
 	err := ctrl.userUsecase.Register(c.Request.Context(), user)
+	fmt.Println(user.Username)
 	if err != nil {
 		switch err {
 		case domain.ErrEmailExists:
@@ -111,6 +113,8 @@ func (ctrl *UserController) Register(c *gin.Context) {
 		case domain.ErrPasswordTooShort, domain.ErrInvalidEmailFormat:
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		default:
+			fmt.Println(err.Error())
+			fmt.Println(user.Provider)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "An internal error occurred"})
 		}
 		return

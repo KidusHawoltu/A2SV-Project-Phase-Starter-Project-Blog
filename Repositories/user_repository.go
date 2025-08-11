@@ -4,6 +4,7 @@ import (
 	domain "A2SV_Starter_Project_Blog/Domain"
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -37,6 +38,7 @@ func toUserDomain(u UserMongo) *domain.User {
 		Password:       u.Password,
 		Role:           u.Role,
 		Bio:            u.Bio,
+		IsActive:       u.IsActive,
 		ProfilePicture: u.ProfilePicture,
 		Provider:       domain.AuthProvider(u.Provider),
 		ProviderID:     u.ProviderID,
@@ -57,6 +59,7 @@ func fromUserDomain(u domain.User) UserMongo {
 		Password:       u.Password,
 		Role:           u.Role,
 		Bio:            u.Bio,
+		IsActive:       u.IsActive,
 		ProfilePicture: u.ProfilePicture,
 		Provider:       string(u.Provider),
 		ProviderID:     u.ProviderID,
@@ -161,6 +164,7 @@ func (r *MongoUserRepository) GetByUsername(ctx context.Context, username string
 		}
 		return nil, err
 	}
+	fmt.Println("r", mongoModel.IsActive)
 	return toUserDomain(mongoModel), nil
 }
 
