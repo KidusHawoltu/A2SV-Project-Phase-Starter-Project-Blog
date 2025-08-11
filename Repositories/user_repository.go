@@ -4,6 +4,7 @@ import (
 	domain "A2SV_Starter_Project_Blog/Domain"
 	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -37,6 +38,7 @@ func toUserDomain(u UserMongo) *domain.User {
 		Password:       u.Password,
 		Role:           u.Role,
 		Bio:            u.Bio,
+		IsActive:       u.IsActive,
 		ProfilePicture: u.ProfilePicture,
 		Provider:       domain.AuthProvider(u.Provider),
 		ProviderID:     u.ProviderID,
@@ -57,6 +59,7 @@ func fromUserDomain(u domain.User) UserMongo {
 		Password:       u.Password,
 		Role:           u.Role,
 		Bio:            u.Bio,
+		IsActive:       u.IsActive,
 		ProfilePicture: u.ProfilePicture,
 		Provider:       string(u.Provider),
 		ProviderID:     u.ProviderID,
@@ -65,18 +68,64 @@ func fromUserDomain(u domain.User) UserMongo {
 	}
 }
 
-type mongoUserRepository struct {
+type MongoUserRepository struct {
 	collection *mongo.Collection
 }
 
 // NewMongoUserRepository creates a new user repository instance.
-func NewMongoUserRepository(db *mongo.Database, collectionName string) usecases.UserRepository {
-	return &mongoUserRepository{
+func NewMongoUserRepository(db *mongo.Database, collectionName string) *MongoUserRepository {
+	return &MongoUserRepository{
 		collection: db.Collection(collectionName),
 	}
 }
 
-func (r *mongoUserRepository) Create(ctx context.Context, user *domain.User) error {
+func (r *MongoUserRepository) CreateUserIndexes(ctx context.Context) error {
+	// Unique index for email to ensure no duplicates and for fast login lookups.
+	// The `collation` option makes the index case-insensitive.
+	emailIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "email", Value: 1}},
+		Options: options.Index().SetUnique(true).SetCollation(&options.Collation{
+			Locale:   "en",
+			Strength: 2, // 1 for base chars, 2 for accents, 3 for case/variants
+		}),
+	}
+
+	// Unique index for username.
+	usernameIndex := mongo.IndexModel{
+		Keys:    bson.D{{Key: "username", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	}
+
+	// Unique compound index for OAuth providers.
+	providerIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "provider", Value: 1},
+			{Key: "providerId", Value: 1},
+		},
+		Options: options.Index().SetUnique(true).SetPartialFilterExpression(bson.M{
+			"providerId": bson.M{"$type": "string"}, // Only apply unique constraint if providerId exists
+		}),
+	}
+
+	// General purpose index for admin filtering and sorting.
+	adminFilterIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "role", Value: 1},
+			{Key: "isActive", Value: 1},
+			{Key: "createdAt", Value: -1},
+		},
+	}
+
+	_, err := r.collection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		emailIndex,
+		usernameIndex,
+		providerIndex,
+		adminFilterIndex,
+	})
+	return err
+}
+
+func (r *MongoUserRepository) Create(ctx context.Context, user *domain.User) error {
 	mongoModel := fromUserDomain(*user)
 	now := time.Now()
 	mongoModel.CreatedAt = now
@@ -93,7 +142,7 @@ func (r *mongoUserRepository) Create(ctx context.Context, user *domain.User) err
 	return nil
 }
 
-func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+func (r *MongoUserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	var mongoModel UserMongo
 	err := r.collection.FindOne(ctx, bson.M{"email": email}).Decode(&mongoModel)
 	if err != nil {
@@ -106,7 +155,7 @@ func (r *mongoUserRepository) GetByEmail(ctx context.Context, email string) (*do
 }
 
 // GetByUsername fetches a single user by their username.
-func (r *mongoUserRepository) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
+func (r *MongoUserRepository) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
 	var mongoModel UserMongo
 	err := r.collection.FindOne(ctx, bson.M{"username": username}).Decode(&mongoModel)
 	if err != nil {
@@ -115,10 +164,11 @@ func (r *mongoUserRepository) GetByUsername(ctx context.Context, username string
 		}
 		return nil, err
 	}
+	fmt.Println("r", mongoModel.IsActive)
 	return toUserDomain(mongoModel), nil
 }
 
-func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
+func (r *MongoUserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
 	objectID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return nil, domain.ErrUserNotFound // Invalid ID format
@@ -135,7 +185,7 @@ func (r *mongoUserRepository) GetByID(ctx context.Context, id string) (*domain.U
 	return toUserDomain(mongoModel), nil
 }
 
-func (r *mongoUserRepository) Update(ctx context.Context, user *domain.User) error {
+func (r *MongoUserRepository) Update(ctx context.Context, user *domain.User) error {
 	objectID, err := primitive.ObjectIDFromHex(user.ID)
 	if err != nil {
 		return domain.ErrUserNotFound
@@ -155,7 +205,7 @@ func (r *mongoUserRepository) Update(ctx context.Context, user *domain.User) err
 	return nil
 }
 
-func (r *mongoUserRepository) FindUserIDsByName(ctx context.Context, authorName string) ([]string, error) {
+func (r *MongoUserRepository) FindUserIDsByName(ctx context.Context, authorName string) ([]string, error) {
 	filter := bson.M{"username": bson.M{"$regex": authorName, "$options": "i"}}
 	projection := options.Find().SetProjection(bson.M{"_id": 1})
 
@@ -184,7 +234,7 @@ func (r *mongoUserRepository) FindUserIDsByName(ctx context.Context, authorName 
 }
 
 // FindByProviderID finds a user by their external provider ID (e.g., from Google).
-func (r *mongoUserRepository) FindByProviderID(ctx context.Context, provider domain.AuthProvider, providerID string) (*domain.User, error) {
+func (r *MongoUserRepository) FindByProviderID(ctx context.Context, provider domain.AuthProvider, providerID string) (*domain.User, error) {
 	filter := bson.M{
 		"provider":   string(provider),
 		"providerId": providerID,
@@ -202,7 +252,7 @@ func (r *mongoUserRepository) FindByProviderID(ctx context.Context, provider dom
 }
 
 // SearchAndFilter retrieves a paginated and filtered list of users based on the provided options.
-func (r *mongoUserRepository) SearchAndFilter(ctx context.Context, opts domain.UserSearchFilterOptions) ([]*domain.User, int64, error) {
+func (r *MongoUserRepository) SearchAndFilter(ctx context.Context, opts domain.UserSearchFilterOptions) ([]*domain.User, int64, error) {
 	filter := buildUserFilter(opts)
 
 	total, err := r.collection.CountDocuments(ctx, filter)

@@ -3,7 +3,6 @@ package repositories_test
 import (
 	domain "A2SV_Starter_Project_Blog/Domain"
 	repositories "A2SV_Starter_Project_Blog/Repositories"
-	usecases "A2SV_Starter_Project_Blog/Usecases"
 	"context"
 	"testing"
 	"time"
@@ -17,7 +16,7 @@ import (
 // UserRepositorySuite defines the test suite.
 type UserRepositorySuite struct {
 	suite.Suite
-	repository usecases.UserRepository
+	repository *repositories.MongoUserRepository
 	collection *mongo.Collection
 }
 
@@ -40,7 +39,64 @@ func TestUserRepositorySuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode.")
 	}
+	t.Parallel()
 	suite.Run(t, new(UserRepositorySuite))
+}
+
+func (s *UserRepositorySuite) TestCreateUserIndexes() {
+	ctx := context.Background()
+
+	// Act: Call the index creation method.
+	err := s.repository.CreateUserIndexes(ctx)
+	s.Require().NoError(err, "CreateUserIndexes should not return an error")
+
+	// Assert: List all indexes and verify them.
+	cursor, err := s.collection.Indexes().List(ctx)
+	s.Require().NoError(err, "Failed to list collection indexes")
+
+	var indexes []bson.M
+	err = cursor.All(ctx, &indexes)
+	s.Require().NoError(err, "Failed to decode indexes")
+
+	// We expect the default '_id_' index plus our 4 custom ones.
+	s.Len(indexes, 5, "Expected 5 indexes in total")
+
+	indexNames := make(map[string]bool)
+	indexSpecs := make(map[string]bson.M)
+	for _, idx := range indexes {
+		name := idx["name"].(string)
+		indexNames[name] = true
+		indexSpecs[name] = idx
+	}
+
+	s.Run("Email Unique Index", func() {
+		indexName := "email_1"
+		s.True(indexNames[indexName], "Email unique index should exist")
+		s.True(indexSpecs[indexName]["unique"].(bool), "Email index should be unique")
+		// Also verify the case-insensitive collation
+		collation, ok := indexSpecs[indexName]["collation"].(bson.M)
+		s.True(ok, "Collation should exist for email index")
+		s.Equal("en", collation["locale"])
+		s.Equal(int32(2), collation["strength"])
+	})
+
+	s.Run("Username Unique Index", func() {
+		indexName := "username_1"
+		s.True(indexNames[indexName], "Username unique index should exist")
+		s.True(indexSpecs[indexName]["unique"].(bool), "Username index should be unique")
+	})
+
+	s.Run("Provider Unique Index", func() {
+		indexName := "provider_1_providerId_1"
+		s.True(indexNames[indexName], "Provider unique index should exist")
+		s.True(indexSpecs[indexName]["unique"].(bool), "Provider index should be unique")
+		s.NotNil(indexSpecs[indexName]["partialFilterExpression"], "Provider index should have a partial filter")
+	})
+
+	s.Run("Admin Filter Index", func() {
+		indexName := "role_1_isActive_1_createdAt_-1"
+		s.True(indexNames[indexName], "Admin filter index should exist")
+	})
 }
 
 // --- The Actual Tests ---

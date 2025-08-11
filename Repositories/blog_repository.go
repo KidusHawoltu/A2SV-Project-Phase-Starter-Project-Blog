@@ -37,21 +37,66 @@ type BlogModel struct {
 	UpdatedAt       time.Time          `bson:"updated_at"`
 }
 
-// blogRepository implements the domain.BlogRepository interface using MongoDB.
-type blogRepository struct {
+// BlogRepository implements the domain.BlogRepository interface using MongoDB.
+type BlogRepository struct {
 	collection *mongo.Collection
 }
 
 // NewBlogRepository is the constructor for the blog repository.
-func NewBlogRepository(col *mongo.Collection) domain.IBlogRepository {
-	return &blogRepository{
+func NewBlogRepository(col *mongo.Collection) *BlogRepository {
+	return &BlogRepository{
 		collection: col,
 	}
 }
 
+func (r *BlogRepository) CreateBlogIndexes(ctx context.Context) error {
+	// Text index for regex/text searches on title and content.
+	textIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "title", Value: "text"},
+			{Key: "content", Value: "text"},
+		},
+	}
+
+	// Index for fetching blogs by author, sorted by date.
+	authorDateIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "author_id", Value: 1},
+			{Key: "created_at", Value: -1},
+		},
+	}
+
+	// Multikey index for fetching blogs by tags, sorted by date.
+	tagsDateIndex := mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "tags", Value: 1},
+			{Key: "created_at", Value: -1},
+		},
+	}
+
+	// Index for general date-based sorting.
+	dateIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "created_at", Value: -1}},
+	}
+
+	// Index for sorting by engagement, for "most liked/commented" type queries.
+	engagementIndex := mongo.IndexModel{
+		Keys: bson.D{{Key: "engagementScore", Value: -1}},
+	}
+
+	_, err := r.collection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		textIndex,
+		authorDateIndex,
+		tagsDateIndex,
+		dateIndex,
+		engagementIndex,
+	})
+	return err
+}
+
 // --- Interface Implementations ---
 
-func (r *blogRepository) Create(ctx context.Context, blog *domain.Blog) error {
+func (r *BlogRepository) Create(ctx context.Context, blog *domain.Blog) error {
 	model, err := fromBlogDomain(blog) // Convert domain entity to persistence model
 	if err != nil {
 		return err
@@ -74,7 +119,7 @@ func (r *blogRepository) Create(ctx context.Context, blog *domain.Blog) error {
 	return nil
 }
 
-func (r *blogRepository) GetByID(ctx context.Context, id string) (*domain.Blog, error) {
+func (r *BlogRepository) GetByID(ctx context.Context, id string) (*domain.Blog, error) {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		// An invalid hex string for an ID means it can't possibly be found.
@@ -97,7 +142,7 @@ func (r *blogRepository) GetByID(ctx context.Context, id string) (*domain.Blog, 
 // SearchAndFilter is the main public method for querying blogs.
 // It acts as a router, delegating to the most efficient query strategy
 // based on whether the user is sorting by popularity.
-func (r *blogRepository) SearchAndFilter(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+func (r *BlogRepository) SearchAndFilter(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
 	if opts.SortBy == "popularity" {
 		return r.executePopularityAggregation(ctx, opts)
 	}
@@ -106,7 +151,7 @@ func (r *blogRepository) SearchAndFilter(ctx context.Context, opts domain.BlogSe
 
 // executeSimpleFind handles all non-popularity sorts using an efficient `find` command.
 // This is faster than an aggregation pipeline for simple queries.
-func (r *blogRepository) executeSimpleFind(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+func (r *BlogRepository) executeSimpleFind(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
 	// 1. Build the filter document using the shared helper.
 	filter, err := buildFilter(opts)
 	if err != nil {
@@ -132,6 +177,8 @@ func (r *blogRepository) executeSimpleFind(ctx context.Context, opts domain.Blog
 	switch opts.SortBy {
 	case "title":
 		sortDoc = bson.D{{Key: "title", Value: sortValue}}
+	case "engagementScore":
+		sortDoc = bson.D{{Key: "engagementScore", Value: sortValue}}
 	default: // "date" or any other value defaults to sorting by creation date.
 		sortDoc = bson.D{{Key: "created_at", Value: sortValue}}
 	}
@@ -159,7 +206,7 @@ func (r *blogRepository) executeSimpleFind(ctx context.Context, opts domain.Blog
 
 // executePopularityAggregation handles the complex case of sorting by a calculated popularity score.
 // It uses a MongoDB aggregation pipeline to compute the score on the fly.
-func (r *blogRepository) executePopularityAggregation(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
+func (r *BlogRepository) executePopularityAggregation(ctx context.Context, opts domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
 	// 1. Build the filter document using the shared helper.
 	filter, err := buildFilter(opts)
 	if err != nil {
@@ -283,7 +330,7 @@ func buildFilter(opts domain.BlogSearchFilterOptions) (bson.M, error) {
 	return bson.M{operator: conditions}, nil
 }
 
-func (r *blogRepository) Update(ctx context.Context, blog *domain.Blog) error {
+func (r *BlogRepository) Update(ctx context.Context, blog *domain.Blog) error {
 	model, err := fromBlogDomain(blog)
 	if err != nil {
 		return err
@@ -310,7 +357,7 @@ func (r *blogRepository) Update(ctx context.Context, blog *domain.Blog) error {
 	return nil
 }
 
-func (r *blogRepository) Delete(ctx context.Context, id string) error {
+func (r *BlogRepository) Delete(ctx context.Context, id string) error {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return usecases.ErrNotFound
@@ -328,15 +375,15 @@ func (r *blogRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (r *blogRepository) IncrementLikes(ctx context.Context, blogID string, value int) error {
+func (r *BlogRepository) IncrementLikes(ctx context.Context, blogID string, value int) error {
 	return r.UpdateInteractionCounts(ctx, blogID, value, 0)
 }
 
-func (r *blogRepository) IncrementDislikes(ctx context.Context, blogID string, value int) error {
+func (r *BlogRepository) IncrementDislikes(ctx context.Context, blogID string, value int) error {
 	return r.UpdateInteractionCounts(ctx, blogID, 0, value)
 }
 
-func (r *blogRepository) IncrementViews(ctx context.Context, blogID string) error {
+func (r *BlogRepository) IncrementViews(ctx context.Context, blogID string) error {
 	objID, err := primitive.ObjectIDFromHex(blogID)
 	if err != nil {
 		return err
@@ -352,7 +399,7 @@ func (r *blogRepository) IncrementViews(ctx context.Context, blogID string) erro
 	return err // The caller (e.g., a goroutine) can decide what to do with this error.
 }
 
-func (r *blogRepository) IncrementCommentCount(ctx context.Context, blogID string, value int) error {
+func (r *BlogRepository) IncrementCommentCount(ctx context.Context, blogID string, value int) error {
 	objID, err := primitive.ObjectIDFromHex(blogID)
 	if err != nil {
 		return err
@@ -380,7 +427,7 @@ func (r *blogRepository) IncrementCommentCount(ctx context.Context, blogID strin
 	return nil
 }
 
-func (r *blogRepository) UpdateInteractionCounts(ctx context.Context, blogID string, likesInc, dislikesInc int) error {
+func (r *BlogRepository) UpdateInteractionCounts(ctx context.Context, blogID string, likesInc, dislikesInc int) error {
 	objID, err := primitive.ObjectIDFromHex(blogID)
 	if err != nil {
 		return usecases.ErrNotFound

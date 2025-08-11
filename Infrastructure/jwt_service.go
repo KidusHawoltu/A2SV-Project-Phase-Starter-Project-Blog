@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // JWTService defines the operations for JWT token management.
@@ -35,6 +35,7 @@ type jwtService struct {
 
 // NewJWTService creates a new JWT service instance.
 func NewJWTService(secret, issuer string, accessTokenTTL, refreshTokenTTL time.Duration) JWTService {
+	fmt.Println(refreshTokenTTL)
 	return &jwtService{
 		secretKey:       secret,
 		issuer:          issuer,
@@ -48,7 +49,7 @@ func (s *jwtService) GenerateAccessToken(userID string, role domain.Role) (strin
 		UserID: userID,
 		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        uuid.NewString(),
+			ID:        primitive.NewObjectID().Hex(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.accessTokenTTL)),
 			Issuer:    s.issuer,
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -85,9 +86,10 @@ func (s *jwtService) GenerateRefreshToken(userID string) (string, *JWTClaims, er
 			ExpiresAt: jwt.NewNumericDate((time.Now().Add((s.refreshTokenTTL)))),
 			Issuer:    s.issuer,
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			ID:        uuid.NewString(),
+			ID:        primitive.NewObjectID().Hex(),
 		},
 	}
+	fmt.Println(claims.RegisteredClaims.ExpiresAt.Date())
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(s.secretKey))
 	return tokenString, claims, err

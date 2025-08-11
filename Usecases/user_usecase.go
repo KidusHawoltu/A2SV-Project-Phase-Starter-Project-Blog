@@ -4,11 +4,12 @@ import (
 	domain "A2SV_Starter_Project_Blog/Domain"
 	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
 	"context"
+	"fmt"
 	"mime/multipart"
 	"net/mail"
 	"time"
 
-	"github.com/google/uuid"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // UserRepository defines the persistence operations for a User.
@@ -26,6 +27,7 @@ type UserRepository interface {
 type TokenRepository interface {
 	Store(ctx context.Context, token *domain.Token) error
 	GetByValue(ctx context.Context, tokenValue string) (*domain.Token, error)
+	GetByID(ctx context.Context, tokenID string) (*domain.Token, error)
 	Delete(ctx context.Context, tokenID string) error
 	DeleteByUserID(ctx context.Context, userID string, tokenType domain.TokenType) error
 }
@@ -104,10 +106,10 @@ func (uc *userUsecase) Register(c context.Context, user *domain.User) error {
 	}
 
 	activationToken := &domain.Token{
-		ID:        uuid.NewString(),
+		ID:        primitive.NewObjectID().Hex(),
 		UserID:    user.ID,
 		Type:      domain.TokenTypeActivation,
-		Value:     uuid.NewString(),
+		Value:     primitive.NewObjectID().Hex(),
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 
@@ -160,17 +162,18 @@ func (uc *userUsecase) Login(c context.Context, identifier, password string) (st
 	if user == nil {
 		return "", "", domain.ErrAuthenticationFailed
 	}
-
+	fmt.Println(user.Role)
 	if user.Provider != domain.ProviderLocal {
 		return "", "", domain.ErrOAuthUser
 	}
-
+	fmt.Println(user.IsActive)
 	if !user.IsActive {
 		return "", "", domain.ErrAccountNotActive
 	}
-
+	fmt.Println(user.Email, *user.Password, password)
 	err = uc.passwordService.ComparePassword(*(user.Password), password)
 	if err != nil {
+		fmt.Println(err.Error())
 		return "", "", domain.ErrAuthenticationFailed
 	}
 
@@ -189,7 +192,7 @@ func (uc *userUsecase) Logout(c context.Context, refreshToken string) error {
 	return uc.tokenRepo.Delete(ctx, token.ID)
 }
 
-func (uc *userUsecase) RefreshAccessToken(c context.Context, refreshToken, accessToken string) (string, string, error) {
+func (uc *userUsecase) RefreshAccessToken(c context.Context, accessToken, refreshToken string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(c, uc.contextTimeout)
 	defer cancel()
 
@@ -205,8 +208,8 @@ func (uc *userUsecase) RefreshAccessToken(c context.Context, refreshToken, acces
 
 	dbAccessToken, err := uc.tokenRepo.GetByValue(ctx, accessToken)
 	if err != nil || dbAccessToken == nil {
-		uc.tokenRepo.DeleteByUserID(ctx, dbRefreshToken.UserID, domain.TokenTypeRefresh)
-		uc.tokenRepo.DeleteByUserID(ctx, dbAccessToken.UserID, domain.TokenTypeAccessToken)
+		uc.tokenRepo.DeleteByUserID(ctx, AccessClaims.UserID, domain.TokenTypeRefresh)
+		uc.tokenRepo.DeleteByUserID(ctx, AccessClaims.UserID, domain.TokenTypeAccessToken)
 		return "", "", domain.ErrAuthenticationFailed
 	}
 
@@ -242,10 +245,10 @@ func (uc *userUsecase) ForgetPassword(c context.Context, email string) error {
 		return err
 	}
 	resetToken := &domain.Token{
-		ID:        uuid.NewString(),
+		ID:        primitive.NewObjectID().Hex(),
 		UserID:    user.ID,
 		Type:      domain.TokenTypePasswordReset,
-		Value:     uuid.NewString(),
+		Value:     primitive.NewObjectID().Hex(),
 		ExpiresAt: time.Now().Add(15 * time.Minute),
 	}
 
@@ -334,7 +337,7 @@ func (uc *userUsecase) generateAndStoreTokenPair(ctx context.Context, user *doma
 	if err != nil {
 		return "", "", err
 	}
-
+	fmt.Println(accessClaims.ExpiresAt)
 	accessTokenModel := &domain.Token{
 		ID:        accessClaims.ID,
 		UserID:    user.ID,
@@ -344,6 +347,7 @@ func (uc *userUsecase) generateAndStoreTokenPair(ctx context.Context, user *doma
 	}
 
 	if err := uc.tokenRepo.Store(ctx, accessTokenModel); err != nil {
+		fmt.Println(err.Error())
 		return "", "", err
 	}
 
@@ -386,7 +390,8 @@ func (uc *userUsecase) SearchAndFilter(c context.Context, options domain.UserSea
 func (uc *userUsecase) SetUserRole(ctx context.Context, actorUserID string, actorRole domain.Role, targetUserID string, newRole domain.Role) (*domain.User, error) {
 	ctx, cancel := context.WithTimeout(ctx, uc.contextTimeout)
 	defer cancel()
-
+	fmt.Println(actorUserID)
+	fmt.Println(targetUserID)
 	if actorRole != domain.RoleAdmin {
 		return nil, domain.ErrPermissionDenied
 	}

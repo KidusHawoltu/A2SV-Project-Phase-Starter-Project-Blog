@@ -26,16 +26,17 @@ type InteractBlogRequest struct {
 }
 
 type BlogResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	AuthorID  string    `json:"author_id"`
-	Tags      []string  `json:"tags"`
-	Views     int64     `json:"views"`
-	Likes     int64     `json:"likes"`
-	Dislikes  int64     `json:"dislikes"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	Title         string    `json:"title"`
+	Content       string    `json:"content"`
+	AuthorID      string    `json:"author_id"`
+	Tags          []string  `json:"tags"`
+	Views         int64     `json:"views"`
+	Likes         int64     `json:"likes"`
+	Dislikes      int64     `json:"dislikes"`
+	CommentsCount int64     `json:"comments_count"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Pagination struct {
@@ -237,39 +238,39 @@ func HandleError(c *gin.Context, err error) {
 	// --- 400 Bad Request ---
 	// Catch specific validation errors first
 	case errors.Is(err, domain.ErrPasswordTooShort),
-		 errors.Is(err, domain.ErrInvalidEmailFormat),
-		 errors.Is(err, domain.ErrInvalidRole),
-		 errors.Is(err, domain.ErrUsernameEmpty),
-		 errors.Is(err, domain.ErrUsernameTooLong):
+		errors.Is(err, domain.ErrInvalidEmailFormat),
+		errors.Is(err, domain.ErrInvalidRole),
+		errors.Is(err, domain.ErrUsernameEmpty),
+		errors.Is(err, domain.ErrUsernameTooLong):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-	
+
 	// Catch generic validation error
 	case errors.Is(err, domain.ErrValidation):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input provided"})
 
 	// --- 401 Unauthorized ---
 	case errors.Is(err, domain.ErrAuthenticationFailed),
-		 errors.Is(err, domain.ErrInvalidActivationToken),
-		 errors.Is(err, domain.ErrInvalidResetToken):
+		errors.Is(err, domain.ErrInvalidActivationToken),
+		errors.Is(err, domain.ErrInvalidResetToken):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-	
+
 	// --- 403 Forbidden ---
 	case errors.Is(err, domain.ErrPermissionDenied),
-		 errors.Is(err, domain.ErrCannotChangeOwnRole), // Specific forbidden action
-		 errors.Is(err, domain.ErrOAuthUser), // Specific forbidden action
-		 errors.Is(err, domain.ErrAccountNotActive):
+		errors.Is(err, domain.ErrCannotChangeOwnRole), // Specific forbidden action
+		errors.Is(err, domain.ErrOAuthUser),           // Specific forbidden action
+		errors.Is(err, domain.ErrAccountNotActive):
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 
 	// --- 404 Not Found ---
 	case errors.Is(err, domain.ErrUserNotFound),
-		 errors.Is(err, usecases.ErrNotFound):
+		errors.Is(err, usecases.ErrNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 	// Add other "not found" errors here if you have them (e.g., domain.ErrBlogNotFound)
 
 	// --- 409 Conflict ---
 	case errors.Is(err, domain.ErrEmailExists),
-		 errors.Is(err, domain.ErrUsernameExists),
-		 errors.Is(err, usecases.ErrConflict):
+		errors.Is(err, domain.ErrUsernameExists),
+		errors.Is(err, usecases.ErrConflict):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 
 	// --- 500 Internal Server Error (Default) ---
@@ -281,16 +282,17 @@ func HandleError(c *gin.Context, err error) {
 
 func toBlogResponse(b *domain.Blog) BlogResponse {
 	return BlogResponse{
-		ID:        b.ID,
-		Title:     b.Title,
-		Content:   b.Content,
-		AuthorID:  b.AuthorID,
-		Tags:      b.Tags,
-		Views:     b.Views,
-		Likes:     b.Likes,
-		Dislikes:  b.Dislikes,
-		CreatedAt: b.CreatedAt,
-		UpdatedAt: b.UpdatedAt,
+		ID:            b.ID,
+		Title:         b.Title,
+		Content:       b.Content,
+		AuthorID:      b.AuthorID,
+		Tags:          b.Tags,
+		Views:         b.Views,
+		Likes:         b.Likes,
+		Dislikes:      b.Dislikes,
+		CommentsCount: b.CommentsCount,
+		CreatedAt:     b.CreatedAt,
+		UpdatedAt:     b.UpdatedAt,
 	}
 }
 
@@ -309,4 +311,3 @@ func toPaginatedBlogResponse(blogs []*domain.Blog, total, page, limit int64) Pag
 		},
 	}
 }
-

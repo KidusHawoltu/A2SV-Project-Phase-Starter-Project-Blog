@@ -31,7 +31,6 @@ func (m *MockBlogRepository) Create(ctx context.Context, blog *domain.Blog) erro
 	}
 	return args.Error(0)
 }
-
 func (m *MockBlogRepository) SearchAndFilter(ctx context.Context, options domain.BlogSearchFilterOptions) ([]*domain.Blog, int64, error) {
 	args := m.Called(ctx, options)
 	var blogs []*domain.Blog
@@ -40,7 +39,6 @@ func (m *MockBlogRepository) SearchAndFilter(ctx context.Context, options domain
 	}
 	return blogs, args.Get(1).(int64), args.Error(2)
 }
-
 func (m *MockBlogRepository) GetByID(ctx context.Context, id string) (*domain.Blog, error) {
 	args := m.Called(ctx, id)
 	var blog *domain.Blog
@@ -49,37 +47,30 @@ func (m *MockBlogRepository) GetByID(ctx context.Context, id string) (*domain.Bl
 	}
 	return blog, args.Error(1)
 }
-
 func (m *MockBlogRepository) Update(ctx context.Context, blog *domain.Blog) error {
 	args := m.Called(ctx, blog)
 	return args.Error(0)
 }
-
 func (m *MockBlogRepository) Delete(ctx context.Context, id string) error {
 	args := m.Called(ctx, id)
 	return args.Error(0)
 }
-
 func (m *MockBlogRepository) IncrementLikes(ctx context.Context, blogID string, value int) error {
 	args := m.Called(ctx, blogID, value)
 	return args.Error(0)
 }
-
 func (m *MockBlogRepository) IncrementDislikes(ctx context.Context, blogID string, value int) error {
 	args := m.Called(ctx, blogID, value)
 	return args.Error(0)
 }
-
 func (m *MockBlogRepository) UpdateInteractionCounts(ctx context.Context, blogID string, likesInc, dislikesInc int) error {
 	args := m.Called(ctx, blogID, likesInc, dislikesInc)
 	return args.Error(0)
 }
-
 func (m *MockBlogRepository) IncrementViews(ctx context.Context, blogID string) error {
 	args := m.Called(ctx, blogID)
 	return args.Error(0)
 }
-
 func (m *MockBlogRepository) IncrementCommentCount(ctx context.Context, blogID string, value int) error {
 	args := m.Called(ctx, blogID, value)
 	return args.Error(0)
@@ -97,17 +88,21 @@ func (m *MockInteractionRepository) Get(ctx context.Context, userID, blogID stri
 	}
 	return interaction, args.Error(1)
 }
-
+func (m *MockInteractionRepository) GetByID(ctx context.Context, id string) (*domain.BlogInteraction, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.BlogInteraction), args.Error(1)
+}
 func (m *MockInteractionRepository) Create(ctx context.Context, interaction *domain.BlogInteraction) error {
 	args := m.Called(ctx, interaction)
 	return args.Error(0)
 }
-
 func (m *MockInteractionRepository) Update(ctx context.Context, interaction *domain.BlogInteraction) error {
 	args := m.Called(ctx, interaction)
 	return args.Error(0)
 }
-
 func (m *MockInteractionRepository) Delete(ctx context.Context, interactionID string) error {
 	args := m.Called(ctx, interactionID)
 	return args.Error(0)

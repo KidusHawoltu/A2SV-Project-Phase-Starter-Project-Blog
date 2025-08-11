@@ -11,13 +11,12 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // InteractionRepositoryTestSuite defines the suite for the interaction repository integration tests.
 type InteractionRepositoryTestSuite struct {
 	suite.Suite
-	repo        domain.IInteractionRepository
+	repo        *InteractionRepository
 	collection  *mongo.Collection
 	fixedUserID primitive.ObjectID // A reusable, valid user ID for tests
 	fixedBlogID primitive.ObjectID // A reusable, valid blog ID for tests
@@ -34,20 +33,6 @@ func (s *InteractionRepositoryTestSuite) SetupTest() {
 	// Create reusable IDs for tests
 	s.fixedUserID = primitive.NewObjectID()
 	s.fixedBlogID = primitive.NewObjectID()
-
-	// Programmatically create the unique compound index before each test.
-	// This ensures the duplicate check can be reliably tested.
-	indexModel := mongo.IndexModel{
-		// The keys for the compound index
-		Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "blog_id", Value: 1}},
-		// The option that enforces uniqueness
-		Options: options.Index().SetUnique(true),
-	}
-
-	// Use context.Background() for setup tasks.
-	_, err := s.collection.Indexes().CreateOne(context.Background(), indexModel)
-	// If index creation fails, the entire suite should stop immediately.
-	s.Require().NoError(err, "Failed to create unique index for interactions collection")
 }
 
 // TearDownTest runs after each test to ensure a clean state.
@@ -61,10 +46,50 @@ func TestInteractionRepositorySuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode.")
 	}
+	t.Parallel()
 	suite.Run(t, new(InteractionRepositoryTestSuite))
 }
 
 // --- Tests for each method of the repository ---
+
+func (s *InteractionRepositoryTestSuite) TestCreateInteractionIndexes() {
+	ctx := context.Background()
+
+	// Act: Call the method we want to test.
+	err := s.repo.CreateInteractionIndexes(ctx)
+	s.Require().NoError(err, "CreateInteractionIndexes should not return an error")
+
+	// Assert: List the indexes and verify the one we created is there.
+	cursor, err := s.collection.Indexes().List(ctx)
+	s.Require().NoError(err, "Failed to list collection indexes")
+
+	var indexes []bson.M
+	err = cursor.All(ctx, &indexes)
+	s.Require().NoError(err, "Failed to decode indexes")
+
+	// We expect the default '_id_' index and our custom one.
+	s.Len(indexes, 2, "Expected 2 indexes in total")
+
+	var foundOurIndex bool
+	for _, idx := range indexes {
+		// Skip the default index
+		if idx["name"] == "_id_" {
+			continue
+		}
+
+		s.Equal("user_id_1_blog_id_1", idx["name"], "Index name is incorrect")
+		s.True(idx["unique"].(bool), "Index should be unique")
+
+		keyDoc := idx["key"].(bson.M)
+		s.Len(keyDoc, 2, "Compound index should have two keys")
+		s.Equal(int32(1), keyDoc["user_id"], "Index should contain 'user_id'")
+		s.Equal(int32(1), keyDoc["blog_id"], "Index should contain 'blog_id'")
+
+		foundOurIndex = true
+	}
+
+	s.True(foundOurIndex, "The custom compound index was not found")
+}
 
 func (s *InteractionRepositoryTestSuite) TestCreateAndGet() {
 	ctx := context.Background()
@@ -104,15 +129,68 @@ func (s *InteractionRepositoryTestSuite) TestGet_NotFound() {
 	s.Nil(foundInteraction, "The returned interaction should be nil")
 }
 
+func (s *InteractionRepositoryTestSuite) TestGetByID() {
+	ctx := context.Background()
+
+	// Arrange: Create an interaction so we have a valid ID to fetch.
+	interactionToCreate := &domain.BlogInteraction{
+		UserID: s.fixedUserID.Hex(),
+		BlogID: s.fixedBlogID.Hex(),
+		Action: domain.ActionTypeLike,
+	}
+	err := s.repo.Create(ctx, interactionToCreate)
+	s.Require().NoError(err, "Setup: failed to create an interaction")
+	s.Require().NotEmpty(interactionToCreate.ID, "Setup: interaction ID should be populated after creation")
+
+	s.Run("Success - Interaction Found", func() {
+		// Act: Fetch the interaction using the ID generated during creation.
+		foundInteraction, err := s.repo.GetByID(ctx, interactionToCreate.ID)
+
+		// Assert
+		s.Require().NoError(err)
+		s.Require().NotNil(foundInteraction)
+		s.Equal(interactionToCreate.ID, foundInteraction.ID)
+		s.Equal(interactionToCreate.UserID, foundInteraction.UserID)
+		s.Equal(interactionToCreate.BlogID, foundInteraction.BlogID)
+		s.Equal(interactionToCreate.Action, foundInteraction.Action)
+	})
+
+	s.Run("Failure - Not Found (Valid ID)", func() {
+		// Act: Try to fetch an interaction with a valid but non-existent ID.
+		nonExistentID := primitive.NewObjectID().Hex()
+		foundInteraction, err := s.repo.GetByID(ctx, nonExistentID)
+
+		// Assert
+		s.Require().Error(err)
+		s.ErrorIs(err, usecases.ErrNotFound, "Error should be ErrNotFound for a non-existent ID")
+		s.Nil(foundInteraction)
+	})
+
+	s.Run("Failure - Invalid ID Format", func() {
+		// Act: Try to fetch an interaction with a malformed ID string.
+		invalidID := "not-a-valid-hex-id"
+		foundInteraction, err := s.repo.GetByID(ctx, invalidID)
+
+		// Assert
+		s.Require().Error(err)
+		s.ErrorIs(err, usecases.ErrNotFound, "Error should be ErrNotFound for a malformed ID string")
+		s.Nil(foundInteraction)
+	})
+}
+
 func (s *InteractionRepositoryTestSuite) TestCreate_Duplicate() {
 	ctx := context.Background()
+	// Arrange: Explicitly create the index needed for this test.
+	err := s.repo.CreateInteractionIndexes(ctx)
+	s.Require().NoError(err, "Failed to create index for duplicate test")
+
 	// Arrange: Create an initial interaction
 	interaction1 := &domain.BlogInteraction{
 		UserID: s.fixedUserID.Hex(),
 		BlogID: s.fixedBlogID.Hex(),
 		Action: domain.ActionTypeLike,
 	}
-	err := s.repo.Create(ctx, interaction1)
+	err = s.repo.Create(ctx, interaction1)
 	s.Require().NoError(err)
 
 	// Act: Attempt to create a second interaction with the exact same UserID and BlogID

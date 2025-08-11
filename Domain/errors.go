@@ -14,6 +14,7 @@ var (
 	ErrValidation         = errors.New("validation error")
 
 	// Application-level errors
+	ErrNotFound             = errors.New("resource not found")
 	ErrEmailExists          = errors.New("a user with this email already exists")
 	ErrAuthenticationFailed = errors.New("authentication failed: invalid credentials")
 	ErrUserNotFound         = errors.New("user not found")

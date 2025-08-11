@@ -13,28 +13,31 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // BlogRepositoryTestSuite defines the suite for the blog repository integration tests.
 type BlogRepositoryTestSuite struct {
 	suite.Suite
-	repo          domain.IBlogRepository
-	collection    string
-	fixedAuthorID primitive.ObjectID // A reusable, valid author ID for tests
+	repo           *BlogRepository
+	collectionName string
+	collection     *mongo.Collection
+	fixedAuthorID  primitive.ObjectID // A reusable, valid author ID for tests
 }
 
 // SetupTest runs before each test in the suite.
 // It initializes a fresh repository instance and a clean collection.
 func (s *BlogRepositoryTestSuite) SetupTest() {
-	s.collection = "blogs_test"
-	s.repo = NewBlogRepository(testDB.Collection(s.collection))
+	s.collectionName = "blogs_test"
+	s.collection = testDB.Collection(s.collectionName)
+	s.repo = NewBlogRepository(s.collection)
 	s.fixedAuthorID = primitive.NewObjectID()
 }
 
 // TearDownTest runs after each test in the suite.
 // It drops the test collection to ensure test isolation.
 func (s *BlogRepositoryTestSuite) TearDownTest() {
-	err := testDB.Collection(s.collection).Drop(context.Background())
+	err := testDB.Collection(s.collectionName).Drop(context.Background())
 	s.Require().NoError(err, "Failed to drop test collection")
 }
 
@@ -43,7 +46,57 @@ func TestBlogRepository(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode.")
 	}
+	t.Parallel()
 	suite.Run(t, new(BlogRepositoryTestSuite))
+}
+
+func (s *BlogRepositoryTestSuite) TestCreateBlogIndexes() {
+	ctx := context.Background()
+
+	// Act: Call the index creation method.
+	err := s.repo.CreateBlogIndexes(ctx)
+	s.Require().NoError(err, "CreateBlogIndexes should not return an error")
+
+	// Assert: List all indexes and verify them.
+	cursor, err := s.collection.Indexes().List(ctx)
+	s.Require().NoError(err, "Failed to list collection indexes")
+
+	var indexes []bson.M
+	err = cursor.All(ctx, &indexes)
+	s.Require().NoError(err, "Failed to decode indexes")
+
+	// We expect the default '_id_' index plus our 5 custom ones.
+	s.Len(indexes, 6, "Expected 6 indexes in total")
+
+	indexNames := make(map[string]bool)
+	for _, idx := range indexes {
+		indexNames[idx["name"].(string)] = true
+	}
+
+	s.Run("Text Search Index", func() {
+		indexName := "title_text_content_text"
+		s.True(indexNames[indexName], "Text search index should exist")
+	})
+
+	s.Run("Author-Date Index", func() {
+		indexName := "author_id_1_created_at_-1"
+		s.True(indexNames[indexName], "Author-Date index should exist")
+	})
+
+	s.Run("Tags-Date Index", func() {
+		indexName := "tags_1_created_at_-1"
+		s.True(indexNames[indexName], "Tags-Date multikey index should exist")
+	})
+
+	s.Run("Date-Sort Index", func() {
+		indexName := "created_at_-1"
+		s.True(indexNames[indexName], "Date sorting index should exist")
+	})
+
+	s.Run("Engagement Score Index", func() {
+		indexName := "engagementScore_-1"
+		s.True(indexNames[indexName], "Engagement score index should exist")
+	})
 }
 
 func (s *BlogRepositoryTestSuite) TestCreate() {
@@ -58,7 +111,7 @@ func (s *BlogRepositoryTestSuite) TestCreate() {
 	// Verify directly from the DB
 	var createdModel BlogModel
 	objID, _ := primitive.ObjectIDFromHex(blog.ID)
-	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&createdModel)
+	err = testDB.Collection(s.collectionName).FindOne(ctx, bson.M{"_id": objID}).Decode(&createdModel)
 	s.Require().NoError(err)
 
 	s.Equal("Test Title", createdModel.Title)
@@ -192,7 +245,7 @@ func (s *BlogRepositoryTestSuite) TestSearchAndFilter() {
 		// Manually calculate and set the engagement score for the test.
 		score := (float64(blog.Likes) * LikeWeight) + (float64(blog.Dislikes) * DislikeWeight) + (float64(blog.Views) * ViewWeight) + (float64(blog.CommentsCount) * CommentWeight)
 		objID, _ := primitive.ObjectIDFromHex(blog.ID)
-		_, err = testDB.Collection(s.collection).UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"engagementScore": score}})
+		_, err = testDB.Collection(s.collectionName).UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"engagementScore": score}})
 		s.Require().NoError(err)
 		blogsToCreate[i].ID = blog.ID // Ensure original slice has the ID
 		engagementScores[blog.ID] = score
@@ -340,7 +393,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementLikes() {
 		var updatedBlog BlogModel
 		objID, err := primitive.ObjectIDFromHex(blog.ID)
 		s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
-		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+		err = testDB.Collection(s.collectionName).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 		s.NoError(err)
 		s.Equal(int64(11), updatedBlog.Likes, "Likes count should be incremented by 1")
 		s.Equal(LikeWeight, updatedBlog.EngagementScore, "Engagement score should increase by the like weight")
@@ -355,7 +408,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementLikes() {
 		var updatedBlog BlogModel
 		objID, err := primitive.ObjectIDFromHex(blog.ID)
 		s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
-		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+		err = testDB.Collection(s.collectionName).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 		s.NoError(err)
 		s.Equal(int64(10), updatedBlog.Likes, "Likes count should be decremented back to 10")
 		s.Equal(float64(0), updatedBlog.EngagementScore, "Engagement score should be back to zero")
@@ -378,7 +431,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementDislikes() {
 	var updatedBlog BlogModel
 	objID, err := primitive.ObjectIDFromHex(blog.ID)
 	s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
-	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+	err = testDB.Collection(s.collectionName).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 	s.NoError(err)
 	s.Equal(int64(6), updatedBlog.Dislikes, "Dislikes count should be incremented")
 	s.Equal(DislikeWeight, updatedBlog.EngagementScore, "Engagement score should decrease by the dislike weight")
@@ -401,7 +454,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementViews() {
 	var updatedBlog BlogModel
 	objID, err := primitive.ObjectIDFromHex(blog.ID)
 	s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
-	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+	err = testDB.Collection(s.collectionName).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 	s.NoError(err)
 	s.Equal(int64(2), updatedBlog.Views, "Views count should be 2 after two increments")
 	s.Equal(2*ViewWeight, updatedBlog.EngagementScore, "Engagement score should be twice the view weight")
@@ -418,7 +471,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementCommentCount() {
 	// Update the initial engagement score to match the 3 comments
 	initialScore := 3 * CommentWeight
 	objID, _ := primitive.ObjectIDFromHex(blog.ID)
-	_, err = testDB.Collection(s.collection).UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"engagementScore": initialScore}})
+	_, err = testDB.Collection(s.collectionName).UpdateOne(ctx, bson.M{"_id": objID}, bson.M{"$set": bson.M{"engagementScore": initialScore}})
 	s.Require().NoError(err)
 
 	s.Run("Increment", func() {
@@ -428,7 +481,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementCommentCount() {
 
 		// Assert: Fetch and verify both fields were updated.
 		var updatedBlog BlogModel
-		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+		err = testDB.Collection(s.collectionName).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 		s.NoError(err)
 		s.Equal(int64(4), updatedBlog.CommentsCount)
 		s.Equal(initialScore+CommentWeight, updatedBlog.EngagementScore)
@@ -441,7 +494,7 @@ func (s *BlogRepositoryTestSuite) TestIncrementCommentCount() {
 
 		// Assert: Verify the count is back to the initial state.
 		var updatedBlog BlogModel
-		err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+		err = testDB.Collection(s.collectionName).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 		s.NoError(err)
 		s.Equal(int64(3), updatedBlog.CommentsCount)
 		s.Equal(initialScore, updatedBlog.EngagementScore)
@@ -466,7 +519,7 @@ func (s *BlogRepositoryTestSuite) TestUpdateInteractionCounts() {
 	var updatedBlog BlogModel
 	objID, err := primitive.ObjectIDFromHex(blog.ID)
 	s.Require().NoError(err, "The blog ID from the test setup should be a valid ObjectID hex")
-	err = testDB.Collection(s.collection).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
+	err = testDB.Collection(s.collectionName).FindOne(ctx, bson.M{"_id": objID}).Decode(&updatedBlog)
 	s.NoError(err)
 	s.Equal(int64(21), updatedBlog.Likes, "Likes count should be 21")
 	s.Equal(int64(9), updatedBlog.Dislikes, "Dislikes count should be 9")

@@ -1,0 +1,25 @@
+.idea/
+.vscode/
+
+# Ignore git files
+.git
+.gitignore
+
+# Ignore Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Ignore test files and helpers
+*_test.go
+testhelper/
+Repositories/main_repository_test.go
+Infrastructure/main_infrastructure_test.go
+Infrastructure/manual-integration-tests/
+
+# Ignore local environment files
+.env
+.env.*
+
+# Ignore dependency cache
+vendor/

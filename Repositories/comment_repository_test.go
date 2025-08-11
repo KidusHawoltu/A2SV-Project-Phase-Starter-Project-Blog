@@ -9,13 +9,14 @@ import (
 	. "A2SV_Starter_Project_Blog/Repositories"
 
 	"github.com/stretchr/testify/suite"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
 type CommentRepositoryTestSuite struct {
 	suite.Suite
-	repo        domain.ICommentRepository
+	repo        *CommentRepository
 	collection  *mongo.Collection
 	fixedUserID primitive.ObjectID
 	fixedBlogID primitive.ObjectID
@@ -39,7 +40,57 @@ func TestCommentRepositorySuite(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode.")
 	}
+	t.Parallel()
 	suite.Run(t, new(CommentRepositoryTestSuite))
+}
+
+func (s *CommentRepositoryTestSuite) TestCreateCommentIndexes() {
+	ctx := context.Background()
+
+	// Act: Call the index creation method.
+	err := s.repo.CreateCommentIndexes(ctx)
+	s.Require().NoError(err, "CreateCommentIndexes should not return an error")
+
+	// Assert: List all indexes and verify the ones we created.
+	cursor, err := s.collection.Indexes().List(ctx)
+	s.Require().NoError(err, "Failed to list collection indexes")
+
+	var indexes []bson.M
+	err = cursor.All(ctx, &indexes)
+	s.Require().NoError(err, "Failed to decode indexes")
+
+	// We expect the default '_id_' index plus our 2 custom ones.
+	s.Len(indexes, 3, "Expected 3 indexes in total")
+
+	// Create maps to easily check for the existence of our indexes by name.
+	indexNames := make(map[string]bool)
+	indexSpecs := make(map[string]bson.M)
+	for _, idx := range indexes {
+		name := idx["name"].(string)
+		indexNames[name] = true
+		indexSpecs[name] = idx
+	}
+
+	s.Run("Blog Comments Index", func() {
+		indexName := "blog_id_1_parent_id_1_created_at_1"
+		s.True(indexNames[indexName], "Index for fetching blog comments should exist")
+
+		keyDoc := indexSpecs[indexName]["key"].(bson.M)
+		s.Len(keyDoc, 3, "Blog comments index should be a compound index of 3 keys")
+		s.Equal(int32(1), keyDoc["blog_id"], "Index should contain 'blog_id'")
+		s.Equal(int32(1), keyDoc["parent_id"], "Index should contain 'parent_id'")
+		s.Equal(int32(1), keyDoc["created_at"], "Index should contain 'created_at'")
+	})
+
+	s.Run("Replies Index", func() {
+		indexName := "parent_id_1_created_at_1"
+		s.True(indexNames[indexName], "Index for fetching replies should exist")
+
+		keyDoc := indexSpecs[indexName]["key"].(bson.M)
+		s.Len(keyDoc, 2, "Replies index should be a compound index of 2 keys")
+		s.Equal(int32(1), keyDoc["parent_id"], "Index should contain 'parent_id'")
+		s.Equal(int32(1), keyDoc["created_at"], "Index should contain 'created_at'")
+	})
 }
 
 func (s *CommentRepositoryTestSuite) TestCreateAndGetByID() {
