@@ -20,8 +20,12 @@ jobs:
     services:
       mongo:
         image: mongo:5.0
+        ports:
+          - 27017:27017
       redis:
         image: redis:6-alpine
+        ports:
+          - 6379:6379
 
     # A job is a sequence of "steps".
     steps:
@@ -58,13 +62,9 @@ jobs:
       - name: Run tests
         env:
           # For the database integration tests
-          MONGO_URI_TEST: mongodb://mongo:27017
-          DB_NAME_TEST: "ci_test_db" # Use a dedicated DB name for CI
-          REDIS_ADDR_TEST: redis:6379
+          MONGO_URI_TEST: mongodb://localhost:${{ job.services.mongo.ports['27017'] }}
+          DB_NAME_TEST: "ci_test_db"
+          
+          REDIS_ADDR_TEST: localhost:${{ job.services.redis.ports['6379'] }}
           REDIS_DB_TEST: 0
-
-          # For the AI integration test
-          # This securely injects the secret you created in the GitHub UI.
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: "gemini-1.5-pro-latest" # You can hardcode the model for tests
         run: go test -v -race ./...
