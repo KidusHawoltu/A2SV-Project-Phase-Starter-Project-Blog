@@ -14,7 +14,7 @@ services:
 
   # --- MongoDB Service ---
   mongo:
-    image: mongo:5.0 # Use a specific version of MongoDB
+    image: mongo:6.0 # Use a specific version of MongoDB
     ports:
       - "27017:27017" # Map the port so you can connect from your local machine if needed
     volumes:

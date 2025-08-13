@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mongo:
-        image: mongo:5.0
+        image: mongo:6.0
         ports:
           - 27017:27017
       redis:
@@ -68,3 +68,11 @@ jobs:
           REDIS_ADDR_TEST: localhost:${{ job.services.redis.ports['6379'] }}
           REDIS_DB_TEST: 0
         run: go test -v -race ./...
+      
+      - name: Show MongoDB logs on failure
+        if: failure()
+        run: |
+          echo "--- MongoDB Container Logs ---"
+          docker logs ${{ job.services.mongo.id }}
+          echo "--- Redis Container Logs ---"
+          docker logs ${{ job.services.redis.id }}
