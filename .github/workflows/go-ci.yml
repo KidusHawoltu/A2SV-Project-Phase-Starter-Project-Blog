@@ -1,0 +1,54 @@
+# This is the name of the workflow. It will be displayed in the "Actions" tab of your GitHub repository.
+name: Go CI
+
+# This section defines when the workflow will run.
+on:
+  # Run on every push to the 'main' branch.
+  push:
+    branches: [ "main" ]
+  # Also run on every pull request that targets the 'main' branch.
+  pull_request:
+    branches: [ "main" ]
+
+# A workflow is made up of one or more "jobs" that can run in parallel or sequentially.
+jobs:
+  # We'll define a single job called "build-and-test".
+  build-and-test:
+    # This specifies the type of virtual machine to run the job on.
+    # "ubuntu-latest" is a great, fast, and free choice for open-source projects.
+    runs-on: ubuntu-latest
+
+    # A job is a sequence of "steps".
+    steps:
+      # Step 1: Check out your repository's code.
+      # This uses a pre-built "action" from the GitHub Marketplace.
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Set up the Go environment.
+      # This action installs the specified version of Go.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24' # Use the Go version that matches your project
+
+      # Step 3: Install dependencies.
+      # This step downloads all the Go modules your project needs.
+      # It's cached, so it will be very fast on subsequent runs.
+      - name: Install dependencies
+        run: go mod download
+
+      # Step 4: Build the application.
+      # This command tries to compile your entire project. If it fails, the workflow fails.
+      # It's a great way to catch syntax or compilation errors early.
+      - name: Build
+        run: go build -v ./...
+
+      # Step 5: Run unit and integration tests.
+      # This is the most important step. It runs all your tests.
+      # The `-v` flag provides verbose output. The `-race` flag is a powerful
+      # tool that detects race conditions in your concurrent code.
+      # We use `go test` and not `go test -count=1` here because caching is handled
+      # by the runner itself.
+      - name: Run tests
+        run: go test -v -race ./...
