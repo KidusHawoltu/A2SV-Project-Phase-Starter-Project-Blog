@@ -24,7 +24,7 @@ func main() {
 		log.Println("WARN: GEMINI_API_KEY is not set. AI features will fail.")
 	}
 	if cfg.CloudinaryCloudName == "" || cfg.CloudinaryAPIKey == "" || cfg.CloudinaryAPISecret == "" {
-		log.Panicln("WARN: Cloudinary credentials are not set. Image uploading will fail")
+		log.Println("WARN: Cloudinary credentials are not set. Image uploading will fail")
 	}
 	if cfg.GoogleClientID == "" || cfg.GoogleClientSecret == "" {
 		log.Println("WARN: Google OAuth credentials are not set. Sign in with Google will fail.")

@@ -22,13 +22,16 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/server ./Delivery
 
 
 # --- Stage 2: Final Image ---
-# Use a minimal, non-root base image for the final container.
-# "scratch" is the smallest possible image, containing nothing.
 # "alpine" is a good alternative if you need a shell for debugging.
-FROM scratch
+FROM alpine:latest
 
 # Set the working directory.
 WORKDIR /app
+
+# --- THIS IS THE CRITICAL PART ---
+# Copy the Certificate Authority certificates from the builder stage.
+# This ensures your application can verify TLS connections.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 # Copy the compiled binary from the 'builder' stage.
 COPY --from=builder /app/server .
