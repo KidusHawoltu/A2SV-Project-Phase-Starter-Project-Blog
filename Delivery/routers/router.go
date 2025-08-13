@@ -3,6 +3,7 @@ package routers
 import (
 	"A2SV_Starter_Project_Blog/Delivery/controllers"
 	infrastructure "A2SV_Starter_Project_Blog/Infrastructure"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,10 @@ func SetupRouter(
 ) *gin.Engine {
 
 	router := gin.Default()
+
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
 
 	// --- Rate Limiting ---
 	// General api limit for all routes
