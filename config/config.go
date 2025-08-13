@@ -19,6 +19,7 @@ type Config struct {
 	MongoURI string
 	DBName   string
 
+	RedisUrl      string
 	RedisAddr     string
 	RedisPassword string
 	RedisDB       int
@@ -67,6 +68,7 @@ func Load() *Config {
 		UsecaseTimeout:      5 * time.Second,
 		MongoURI:            getEnv("MONGO_URI", "mongodb://localhost:27017"),
 		DBName:              getEnv("DB_NAME", "g6-blog-db"),
+		RedisUrl:            getEnv("REDIS_URI", ""),
 		RedisAddr:           getEnv("REDIS_ADDR", "localhost:6379"),
 		RedisPassword:       getEnv("REDIS_PASSWORD", ""),
 		RedisDB:             redisDB,
@@ -115,14 +117,14 @@ func LoadForTest() *Config {
 	if dbName == "g6-blog-db" {
 		log.Fatalf("FATAL: Cannot run tests on the main database '%s'. Set DB_NAME_TEST in your .env.test file.", dbName)
 	}
-	
+
 	// Create a base config by calling the standard Load() function.
 	// This ensures we get all the defaults and standard variables.
 	cfg := Load()
 
 	cfg.MongoURI = mongoURI
 	cfg.DBName = dbName
-	
+
 	return cfg
 }
 

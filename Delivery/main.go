@@ -62,7 +62,7 @@ func main() {
 	if err != nil {
 		log.Printf("WARN: Cloudinary service failed to initialize. Image uploads will be unavailable. Error: %v", err)
 	}
-	redisService, err := infrastructure.NewRedisService(context.Background(), cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+	redisService, err := infrastructure.NewRedisService(context.Background(), cfg.RedisUrl, cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err != nil {
 		log.Fatalf("FATAL: Redis connection failed.Error: %v", err)
 	}

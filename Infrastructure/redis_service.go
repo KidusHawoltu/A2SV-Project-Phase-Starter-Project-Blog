@@ -15,12 +15,18 @@ type RedisService struct {
 
 // NewRedisService creates a new RedisService, establishes a connection,
 // and pings the server to ensure connectivity.
-func NewRedisService(ctx context.Context, addr, password string, db int) (*RedisService, error) {
+func NewRedisService(ctx context.Context, url, addr, password string, db int) (*RedisService, error) {
 	// Create the connection options.
-	opts := &redis.Options{
-		Addr:     addr,     // e.g., "localhost:6379"
-		Password: password, // empty string if no password
-		DB:       db,       // 0 for the default database
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		if addr == "" {
+			return nil, fmt.Errorf("redis connection failed: either URL or address must be provided")
+		}
+		opts = &redis.Options{
+			Addr:     addr,     // e.g., "localhost:6379"
+			Password: password, // empty string if no password
+			DB:       db,       // 0 for the default database
+		}
 	}
 
 	// Create a new Redis client.
